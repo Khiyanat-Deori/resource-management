@@ -3,6 +3,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.middlewares.auth import auth_middleware
 from app.api.admin import users, projects
 from app.api import auth
+from dotenv import load_dotenv
+load_dotenv()
+
 
 app = FastAPI(title="Resource Management System")
 
@@ -18,3 +21,6 @@ app.add_middleware(
 app.include_router(users.router)
 app.include_router(projects.router)
 app.include_router(auth.router)
+
+from app.api.time import history
+app.include_router(history.router)

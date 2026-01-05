@@ -29,6 +29,10 @@ def create_user(payload: UserCreate, db: Session = Depends(get_db)):
         password_hash=hash_password(payload.password),
         role=UserRole(payload.role)
     )
+    #print("PASSWORD =", repr(payload.password))
+    #print("CHAR LEN =", len(payload.password))
+    #print("BYTE LEN =", len(payload.password.encode("utf-8")))
+
     db.add(user)
     db.commit()
     db.refresh(user)
