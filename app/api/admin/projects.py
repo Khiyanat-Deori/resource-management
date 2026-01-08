@@ -8,10 +8,14 @@ from app.db.session import SessionLocal
 from app.models.project import Project
 from app.schemas.project import ProjectCreate, ProjectResponse
 
-# --- NEW IMPORTS FOR PROJECT OWNERS ---
+# --- IMPORTS FOR PROJECT OWNERS (MANAGERS) ---
 from app.models.project_owners import ProjectOwner
 from app.schemas.project_owners import OwnerAssign, OwnerResponse
 from app.models.user import User
+
+# --- IMPORTS FOR PROJECT MEMBERS (WORKERS) ---
+from app.models.project_members import ProjectMember
+from app.schemas.project_members import MemberAssign, MemberResponse
 
 router = APIRouter(prefix="/admin/projects", tags=["Admin - Projects"])
 
@@ -21,6 +25,10 @@ def get_db():
         yield db
     finally:
         db.close()
+
+# ==========================================
+#              CORE PROJECT APIs
+# ==========================================
 
 # --- GET LIST REQUEST (With Search, Status & Date Interval) ---
 @router.get("/", response_model=list[ProjectResponse])
@@ -33,6 +41,13 @@ def list_projects(
     skip: int = 0,
     limit: int = 100
 ):
+    # 1. Validate Date Logic (Prevent "From > To")
+    if start_date_from and start_date_to and start_date_from > start_date_to:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="'start_date_from' cannot be later than 'start_date_to'."
+        )
+
     query = db.query(Project)
 
     if search:
@@ -245,3 +260,70 @@ def remove_project_owner(
     db.commit()
 
     return {"message": "Owner removed successfully"}
+
+
+# ==========================================
+#      PROJECT MEMBERS (WORKERS) APIs
+# ==========================================
+
+# --- ASSIGN MEMBER ---
+@router.post("/{project_id}/members", response_model=MemberResponse)
+def assign_member(
+    project_id: UUID, 
+    payload: MemberAssign, 
+    db: Session = Depends(get_db)
+):
+    # 1. Verify Project Exists
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # 2. Verify User Exists
+    user = db.query(User).filter(User.id == payload.user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # 3. Check for Duplicate Active Assignment
+    existing = db.query(ProjectMember).filter(
+        ProjectMember.project_id == project_id,
+        ProjectMember.user_id == payload.user_id,
+        ProjectMember.is_active == True
+    ).first()
+    
+    if existing:
+        raise HTTPException(status_code=400, detail="User is already active on this project")
+
+    # 4. Create Assignment
+    member = ProjectMember(
+        project_id=project_id,
+        user_id=payload.user_id,
+        work_role=payload.work_role,
+        assigned_from=payload.assigned_from,
+        assigned_to=payload.assigned_to,
+        is_active=True
+    )
+    db.add(member)
+    db.commit()
+    db.refresh(member)
+    
+    # 5. Attach name
+    member.user_name = user.name
+    return member
+
+
+# --- LIST MEMBERS ---
+@router.get("/{project_id}/members", response_model=list[MemberResponse])
+def list_project_members(
+    project_id: UUID, 
+    db: Session = Depends(get_db)
+):
+    members = db.query(ProjectMember).filter(
+        ProjectMember.project_id == project_id
+    ).all()
+    
+    results = []
+    for m in members:
+        m.user_name = m.user.name if m.user else "Unknown"
+        results.append(m)
+        
+    return results

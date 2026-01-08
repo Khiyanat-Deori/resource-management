@@ -3,24 +3,24 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# Virtual Environment (Crucial: do not commit this)
+# Virtual Environment
 venv/
 env/
 .venv/
 
-# Environment Variables (Security: never commit secrets)
+# Environment Variables
 .env
 .env.local
 
-# IDE Settings (VS Code / PyCharm)
+# IDE
 .vscode/
 .idea/
 
-# Distribution / Packaging
+# Build artifacts
 dist/
 build/
 *.egg-info/
 
-# Operating System Files
+# OS files
 .DS_Store
 Thumbs.db
