@@ -79,20 +79,21 @@ else:
         token = authorization.replace("Bearer ", "")
         supabase_user = get_user_from_token(token)
 
-        # Try finding user
+        # Only allow existing users from the local DB
         user = db.query(User).filter(User.email == supabase_user.email).first()
-
-        # Auto-provision user if not exists
         if not user:
-            user = User(
-                email=supabase_user.email,
-                name=supabase_user.user_metadata.get("name", supabase_user.email.split("@")[0]),
-                role=UserRole.USER,  # default role
-                is_active=True,
-                doj=date.today(),  # default DOJ
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="User is not authorized to access this application",
             )
 
-            db.add(user)
+        # Keep local name in sync with Supabase when available
+        supabase_name = (
+            supabase_user.user_metadata.get("full_name")
+            or supabase_user.user_metadata.get("name")
+        )
+        if supabase_name and user.name != supabase_name:
+            user.name = supabase_name
             db.commit()
             db.refresh(user)
 
