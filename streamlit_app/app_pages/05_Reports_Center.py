@@ -1,12 +1,13 @@
 import streamlit as st
 import requests
 import pandas as pd
+import os
 from datetime import date, timedelta
 import io
 from role_guard import get_user_role
 
 # --- CONFIG ---
-API_URL = "http://127.0.0.1:8000"
+API_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
 
 st.set_page_config(page_title="Reports Center", layout="wide")
 

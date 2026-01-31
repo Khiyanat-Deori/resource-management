@@ -4,13 +4,14 @@ from datetime import date, datetime, timedelta
 from typing import Optional, Dict, List
 import requests
 import time
+import os
 from uuid import UUID
 
 # Page config
 st.set_page_config(page_title="Quality Assessment", layout="wide")
 
 # API configuration
-API_BASE_URL = "http://localhost:8000"
+API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 
 # =====================================================================
 # AUTH CHECK & ROLE GUARD

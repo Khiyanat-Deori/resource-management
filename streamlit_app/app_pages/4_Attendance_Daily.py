@@ -1,5 +1,6 @@
 import streamlit as st
 import requests
+import os
 from datetime import date, datetime
 # Role guard imported later after page config
 
@@ -51,7 +52,7 @@ if not role or role not in ["USER", "ADMIN", "MANAGER"]:
     st.error("Access denied. Please log in.")
     st.stop()
 
-API_BASE_URL = "http://127.0.0.1:8000"
+API_BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
 
 # ---------------------------------------------------------
 # HELPER: SPLIT ISO DATETIME INTO DATE + TIME
