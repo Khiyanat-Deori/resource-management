@@ -42,6 +42,37 @@ def log_and_print(message, level='info'):
         logger.warning(message)
         print(f"[SCHEDULER WARNING] {message}")
 
+
+def _calculate_entry_productivity_score(db: Session, entry: TimeHistory):
+    if not entry.minutes_worked or entry.minutes_worked <= 0:
+        return None
+
+    aggregates = db.query(
+        func.sum(TimeHistory.minutes_worked).label("total_minutes"),
+        func.sum(TimeHistory.tasks_completed).label("total_tasks"),
+    ).filter(
+        TimeHistory.project_id == entry.project_id,
+        TimeHistory.work_role == entry.work_role,
+        TimeHistory.sheet_date == entry.sheet_date,
+        TimeHistory.status == "APPROVED",
+        TimeHistory.minutes_worked.isnot(None),
+    ).first()
+
+    total_minutes = float(aggregates.total_minutes or 0)
+    total_tasks = float(aggregates.total_tasks or 0)
+    total_hours = total_minutes / 60 if total_minutes > 0 else 0
+
+    avg_tasks_per_hour = (total_tasks / total_hours) if total_hours > 0 else 0
+    user_tasks = float(entry.tasks_completed or 0)
+    user_hours = float(entry.minutes_worked or 0) / 60
+    user_tasks_per_hour = (user_tasks / user_hours) if user_hours > 0 else 0
+
+    if avg_tasks_per_hour > 0:
+        raw_score = (user_tasks_per_hour / avg_tasks_per_hour) * 7.0
+        return min(10.0, max(0.0, round(raw_score, 2)))
+
+    return 5.0
+
 # Global scheduler instance
 scheduler = BackgroundScheduler()
 
@@ -346,6 +377,8 @@ def calculate_all_projects_automatically():
                             if not entry.minutes_worked and entry.clock_in_at and entry.clock_out_at:
                                 time_diff = entry.clock_out_at - entry.clock_in_at
                                 entry.minutes_worked = int(time_diff.total_seconds() / 60)
+                            db.flush()
+                            entry.productivity_score = _calculate_entry_productivity_score(db, entry)
                         db.commit()
                     
                     # Check if metrics already exist for this date (optional optimization)

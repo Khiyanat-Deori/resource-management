@@ -28,6 +28,7 @@ class TimeHistory(Base):
     notes = Column(Text, nullable=True)
     # Add this line with the other columns
     minutes_worked = Column(Numeric, nullable=True) 
+    productivity_score = Column(Numeric(5, 2), nullable=True)
 
     # --- Approval (Manager Section) ---
     approved_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)

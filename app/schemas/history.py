@@ -23,6 +23,8 @@ class TimeHistoryResponse(BaseModel):
     status: str
    
     minutes_worked: Optional[float] = None
+    productivity_score: Optional[float] = None
+    productivity_rating: Optional[str] = None
     
     sheet_date: date
     clock_in_at: datetime

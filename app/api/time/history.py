@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, Query, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from datetime import datetime, date
 from typing import List, Optional
 import uuid
@@ -21,6 +22,48 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def _calculate_entry_productivity_score(db: Session, session: TimeHistory) -> Optional[float]:
+    if not session.minutes_worked or session.minutes_worked <= 0:
+        return None
+
+    # Aggregate all approved entries for the same day, project, and role
+    aggregates = db.query(
+        func.sum(TimeHistory.minutes_worked).label("total_minutes"),
+        func.sum(TimeHistory.tasks_completed).label("total_tasks"),
+    ).filter(
+        TimeHistory.project_id == session.project_id,
+        TimeHistory.work_role == session.work_role,
+        TimeHistory.sheet_date == session.sheet_date,
+        TimeHistory.status == "APPROVED",
+        TimeHistory.minutes_worked.isnot(None),
+    ).first()
+
+    total_minutes = float(aggregates.total_minutes or 0)
+    total_tasks = float(aggregates.total_tasks or 0)
+    total_hours = total_minutes / 60 if total_minutes > 0 else 0
+
+    avg_tasks_per_hour = (total_tasks / total_hours) if total_hours > 0 else 0
+    user_tasks = float(session.tasks_completed or 0)
+    user_hours = float(session.minutes_worked or 0) / 60
+    user_tasks_per_hour = (user_tasks / user_hours) if user_hours > 0 else 0
+
+    if avg_tasks_per_hour > 0:
+        raw_score = (user_tasks_per_hour / avg_tasks_per_hour) * 7.0
+        return min(10.0, max(0.0, round(raw_score, 2)))
+
+    return 5.0
+
+
+def _get_productivity_rating(score: Optional[float]) -> Optional[str]:
+    if score is None:
+        return None
+    if score >= 7.5:
+        return "GOOD"
+    if score >= 5.0:
+        return "AVERAGE"
+    return "BAD"
 
 # --- 1. CLOCK IN ---
 @router.post("/clock-in", response_model=TimeHistoryResponse)
@@ -114,6 +157,7 @@ def get_history(
     for r in results:
         if r.project:
             r.project_name = r.project.name
+        r.productivity_rating = _get_productivity_rating(r.productivity_score)
             
     return results
 
@@ -145,6 +189,17 @@ def approve_session(
     session.approval_comment = payload.approval_comment
     session.approved_by_user_id = "087084fa-aff2-4c10-bb72-5b0c9963c4d5"
     session.approved_at = datetime.now()
+
+    # Calculate minutes worked if missing
+    if not session.minutes_worked and session.clock_in_at and session.clock_out_at:
+        time_diff = session.clock_out_at - session.clock_in_at
+        session.minutes_worked = int(time_diff.total_seconds() / 60)
+
+    # Compute per-entry productivity score when approved
+    if session.status == "APPROVED":
+        db.flush()
+        session.productivity_score = _calculate_entry_productivity_score(db, session)
+        session.productivity_rating = _get_productivity_rating(session.productivity_score)
     
     db.commit()
     db.refresh(session)
@@ -152,6 +207,7 @@ def approve_session(
     # 3. Attach project name for UI (Safety check)
     if session.project:
         session.project_name = session.project.name
+    session.productivity_rating = _get_productivity_rating(session.productivity_score)
         
     return session
 
@@ -174,6 +230,7 @@ def get_current_active_session(
         # Manually attach project name so the UI can display "Working on: Project Alpha"
         if active_session.project:
             active_session.project_name = active_session.project.name
+        active_session.productivity_rating = _get_productivity_rating(active_session.productivity_score)
         return active_session
     
     return None
