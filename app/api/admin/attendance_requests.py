@@ -16,6 +16,7 @@ from app.schemas.attendance_request import (
 )
 from app.core.dependencies import get_current_user
 from app.models.user import User
+from app.utils.timezone import now_ist
 
 
 router = APIRouter(
@@ -41,7 +42,7 @@ def create_request(
     end_time=payload.end_time,
     reason=payload.reason,
     attachment_url=payload.attachment_url,
-    updated_at=datetime.utcnow()
+    updated_at=now_ist()
 )
 
     db.add(req)

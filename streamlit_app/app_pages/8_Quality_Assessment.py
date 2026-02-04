@@ -6,6 +6,7 @@ import requests
 import time
 import os
 from uuid import UUID
+from utils.timezone import today_ist
 
 # Page config
 st.set_page_config(page_title="Quality Assessment", layout="wide")
@@ -143,7 +144,7 @@ if mode == "Individual Assessment":
     
     with col3:
         # Date selection
-        selected_date = st.date_input("Assessment Date", value=date.today())
+        selected_date = st.date_input("Assessment Date", value=today_ist())
     
     # Quality rating
     col4, col5 = st.columns(2)

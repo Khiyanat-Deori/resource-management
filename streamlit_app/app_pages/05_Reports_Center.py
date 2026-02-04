@@ -5,6 +5,7 @@ import os
 from datetime import date, timedelta
 import io
 from role_guard import get_user_role
+from utils.timezone import today_ist
 
 # --- CONFIG ---
 API_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
@@ -61,7 +62,7 @@ with tab1:
         project_options = ["All Projects"] + list(project_map.keys())
         r_proj_name = st.selectbox("Select Project", project_options, key="r_proj")
     with c2:
-        r_date = st.date_input("Report Date", date.today(), key="r_date")
+        r_date = st.date_input("Report Date", today_ist(), key="r_date")
     
     # 1. Preview Button
     if st.button("🔎 Preview Roster"):
@@ -142,9 +143,9 @@ with tab3:
         
         c1, c2 = st.columns(2)
         with c1:
-            start_d = st.date_input("Start Date", date.today() - timedelta(days=30))
+            start_d = st.date_input("Start Date", today_ist() - timedelta(days=30))
         with c2:
-            end_d = st.date_input("End Date", date.today())
+            end_d = st.date_input("End Date", today_ist())
             
         if st.button("🔎 Preview Performance"):
             u_id = user_selection_map[selected_user_str]

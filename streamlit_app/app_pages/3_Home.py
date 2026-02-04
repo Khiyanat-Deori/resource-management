@@ -4,6 +4,7 @@ import time
 import os
 from datetime import datetime, date
 from role_guard import setup_role_access
+from utils.timezone import now_ist, today_ist, parse_to_ist, IST
 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="Home", layout="wide")
@@ -125,8 +126,8 @@ def calculate_hours_worked(clock_in, clock_out, minutes_worked):
         return format_duration_hhmmss(total_seconds)
 
     try:
-        ci = datetime.fromisoformat(clock_in.replace("Z", ""))
-        co = datetime.fromisoformat(clock_out.replace("Z", ""))
+        ci = parse_to_ist(clock_in)
+        co = parse_to_ist(clock_out)
         total_seconds = int((co - ci).total_seconds())
         return format_duration_hhmmss(total_seconds)
     except Exception:
@@ -136,7 +137,7 @@ def split_datetime(ts):
     if not ts:
         return "-", "-"
     try:
-        dt = datetime.fromisoformat(ts.replace("Z", ""))
+        dt = parse_to_ist(ts)
         return dt.date().isoformat(), dt.strftime("%I:%M %p")
     except Exception:
         return "-", "-"
@@ -180,8 +181,8 @@ if user:
         user_name = user.email
 
 st.markdown(f"# Welcome, {user_name}")
-current_time_str = datetime.now().strftime("%H:%M:%S")
-st.caption(f"Current time: {current_time_str}")
+current_time_str = now_ist().strftime("%H:%M:%S")
+st.caption(f"Current time (IST): {current_time_str}")
 st.divider()
 
 
@@ -292,7 +293,7 @@ with st.container(border=True):
             if st.button("Start work session", type="primary", use_container_width=True):
                 if selected_proj_name:
                     proj_id = project_map[selected_proj_name]['id']
-                    clock_in_at = datetime.now().isoformat()
+                    clock_in_at = now_ist().isoformat()
                     resp = authenticated_request("POST", "/time/clock-in", data={
                         "project_id": proj_id,
                         "work_role": role_val,
@@ -306,7 +307,7 @@ with st.container(border=True):
 
 # --- 3B. TODAY'S CLOCK IN / OUT DETAILS ---
 st.subheader("Today's Sessions")
-today_str = date.today().isoformat()
+today_str = today_ist().isoformat()
 token = st.session_state.get("token")
 today_sessions = (
     _cached_today_sessions(token, today_str, today_str) if token else []
@@ -319,8 +320,8 @@ else:
     def session_sort_key(session):
         ts = session.get("clock_out_at") or session.get("clock_in_at")
         if not ts:
-            return datetime.min
-        return datetime.fromisoformat(ts.replace("Z", ""))
+            return datetime.min.replace(tzinfo=IST)
+        return parse_to_ist(ts)
 
     today_sessions.sort(key=session_sort_key, reverse=True)
 

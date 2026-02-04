@@ -5,6 +5,7 @@ import pandas as pd
 import time
 from datetime import date, datetime, timedelta
 from role_guard import get_user_role
+from utils.timezone import today_ist
 
 def clear_team_stats_cache():
     """Clear caches related to team stats and project assignments.
@@ -104,7 +105,7 @@ with tab1:
             new_code = c2.text_input("Project Code")
 
             c3, c4, c5 = st.columns(3)
-            new_start = c3.date_input("Start Date", value=date.today())
+            new_start = c3.date_input("Start Date", value=today_ist())
             new_end = c4.date_input("End Date (Optional)", value=None)
             is_active = c5.checkbox("Is Active?", value=True)
             
@@ -293,7 +294,7 @@ with tab1:
                 status_val = updates.get("status", original_row["status"])
 
                 if status_val == "COMPLETED" and not end_val:
-                    end_val = date.today()
+                    end_val = today_ist()
                 if status_val in ["ACTIVE", "PAUSED"]:
                     end_val = None
 
@@ -372,7 +373,7 @@ with tab2:
                         with col3:
                             assigned_from = st.date_input(
                                 "Assigned From",
-                                value=date.today(),
+                                value=today_ist(),
                                 key="add_member_from"
                             )
                         with col4:
@@ -604,7 +605,7 @@ with tab3:
             
             with col3:
                 # Date selection
-                selected_date = st.date_input("Assessment Date", value=date.today(), key="qa_date_pmc")
+                selected_date = st.date_input("Assessment Date", value=today_ist(), key="qa_date_pmc")
             
             # Quality rating
             col4, col5 = st.columns(2)

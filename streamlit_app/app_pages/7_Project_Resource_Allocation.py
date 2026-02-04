@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from typing import Dict, List, Optional
 import time
 from role_guard import get_user_role
+from utils.timezone import today_ist, parse_to_ist, format_time_ist
 import base64
 
 load_dotenv()
@@ -142,8 +143,7 @@ def format_time(ts):
     if not ts:
         return "-"
     try:
-        dt = datetime.fromisoformat(str(ts).replace("Z", ""))
-        return dt.strftime("%I:%M %p")
+        return format_time_ist(ts)
     except Exception:
         return "-"
 
@@ -154,8 +154,8 @@ def calculate_hours_worked(clock_in, clock_out, minutes_worked):
         total_seconds = int(minutes_worked * 60)
         return format_duration_hhmmss(total_seconds)
     try:
-        ci = datetime.fromisoformat(str(clock_in).replace("Z", ""))
-        co = datetime.fromisoformat(str(clock_out).replace("Z", ""))
+        ci = parse_to_ist(clock_in)
+        co = parse_to_ist(clock_out)
         total_seconds = int((co - ci).total_seconds())
         return format_duration_hhmmss(total_seconds)
     except Exception:
@@ -572,7 +572,7 @@ st.markdown("---")
 # ---------------------------------------------------------
 col_date, col_refresh = st.columns([4, 1])
 with col_date:
-    selected_date = st.date_input("Select Date", value=date.today(), max_value=date.today(), key="allocation_date")
+    selected_date = st.date_input("Select Date", value=today_ist(), max_value=today_ist(), key="allocation_date")
 with col_refresh:
     st.write("")  # Spacing
     if st.button("🔄 Refresh Data", use_container_width=True, help="Clear cache and reload all data to see latest updates"):

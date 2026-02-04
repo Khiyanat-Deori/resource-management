@@ -4,6 +4,7 @@ from datetime import date
 import requests
 import os
 from role_guard import get_user_role
+from utils.timezone import today_ist
 
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 
@@ -225,7 +226,7 @@ with st.container():
         st.markdown("**Date**")
         status_date = st.date_input(
             "",
-            value=date.today(),
+            value=today_ist(),
             label_visibility="collapsed"
         )
 
