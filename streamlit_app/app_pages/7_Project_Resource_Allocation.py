@@ -119,13 +119,13 @@ observer.observe(document.body, { childList: true, subtree: true, attributes: tr
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 
 WORK_ROLE_OPTIONS = [
-    "ANNOTATION",
-    "QC",
-    "LIVE_QC",
-    "RETRO_QC",
-    "PM",
-    "APM",
-    "RPM",
+    "Annotation",
+    "Panelist",
+    "Proctoring",
+    "Quality Check",
+    "Retro Quality Check",
+    "Super Quality Check",
+    "Operations",
 ]
 
 # ---------------------------------------------------------

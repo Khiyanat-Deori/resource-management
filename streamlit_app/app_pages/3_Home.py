@@ -264,7 +264,15 @@ with st.container(border=True):
                 if role and role.upper() != "N/A" and role not in role_options:
                     role_options.append(role)
 
-            default_roles = ["ANNOTATION", "QC", "Super QC", "Live QC", "Retro QC", "Reasearch", "Other"]
+            default_roles = [
+                "Annotation",
+                "Panelist",
+                "Proctoring",
+                "Quality Check",
+                "Retro Quality Check",
+                "Super Quality Check",
+                "Operations",
+            ]
             for role in default_roles:
                 if role not in role_options:
                     role_options.append(role)
