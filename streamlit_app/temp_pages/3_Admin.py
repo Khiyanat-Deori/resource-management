@@ -2,9 +2,10 @@ import streamlit as st
 import pandas as pd
 from datetime import date
 import requests
+import os
 from role_guard import get_user_role
 
-API_BASE_URL = "http://localhost:8000"
+API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 
 def authenticated_request(method, endpoint, data=None):
     token = st.session_state.get("token")

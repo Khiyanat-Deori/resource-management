@@ -1,5 +1,6 @@
 import streamlit as st
 import requests
+import os
 import pandas as pd
 import time
 from datetime import date, datetime, timedelta
@@ -21,7 +22,7 @@ role = get_user_role()
 if not role or role not in ["ADMIN", "MANAGER"]:
     st.error("Access denied. Admin or Manager role required.")
     st.stop()
-API_BASE_URL = "http://127.0.0.1:8000"
+API_BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
 
 ROLE_OPTIONS = ["ANNOTATION", "QC", "LIVE_QC", "RETRO_QC", "PM", "APM", "RPM"]
 
