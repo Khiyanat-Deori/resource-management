@@ -88,6 +88,21 @@ def authenticated_request(method, endpoint, data=None, params=None):
         st.stop()
     return api_request(method, endpoint, token=token, json=data, params=params)
 
+
+@st.cache_data(ttl=30, show_spinner=False)
+def _cached_projects(token: str):
+    return api_request("GET", "/admin/projects/", token=token) or []
+
+
+@st.cache_data(ttl=15, show_spinner=False)
+def _cached_today_sessions(token: str, start_date: str, end_date: str):
+    return api_request(
+        "GET",
+        "/time/history",
+        token=token,
+        params={"start_date": start_date, "end_date": end_date},
+    ) or []
+
 # ---------------------------------------------------------
 # HELPERS: TIME DISPLAY
 # ---------------------------------------------------------
@@ -213,8 +228,9 @@ with st.container(border=True):
     with col_right:
         st.subheader("Assignment Controls")
         
-        # Fetch Projects from Admin API (reused)
-        assignments = authenticated_request("GET", "/admin/projects/") or []
+        # Fetch Projects from Admin API (cached)
+        token = st.session_state.get("token")
+        assignments = _cached_projects(token) if token else []
         project_map = {p['name']: p for p in assignments}
         
         disabled_flag = False
@@ -283,7 +299,7 @@ with st.container(border=True):
                         "clock_in_at": clock_in_at,
                     })
                     if resp:
-                        time.sleep(1)
+                        st.cache_data.clear()
                         st.rerun()
                 else:
                     st.warning("Please select a project first.")
@@ -291,14 +307,10 @@ with st.container(border=True):
 # --- 3B. TODAY'S CLOCK IN / OUT DETAILS ---
 st.subheader("Today's Sessions")
 today_str = date.today().isoformat()
-today_sessions = authenticated_request(
-    "GET",
-    "/time/history",
-    params={
-        "start_date": today_str,
-        "end_date": today_str,
-    },
-) or []
+token = st.session_state.get("token")
+today_sessions = (
+    _cached_today_sessions(token, today_str, today_str) if token else []
+)
 
 if not today_sessions:
     st.info("No clock-in / clock-out sessions found for today.")
@@ -362,7 +374,7 @@ def clock_out_dialog():
             if resp:
                 st.success("Saved. Great work today.")
                 st.session_state['show_clockout_popup'] = False
-                time.sleep(1.5)
+                st.cache_data.clear()
                 st.rerun()
 
     with c_cancel:
