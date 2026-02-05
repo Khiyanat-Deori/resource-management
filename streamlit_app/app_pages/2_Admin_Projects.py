@@ -25,7 +25,7 @@ if not role or role not in ["ADMIN", "MANAGER"]:
     st.stop()
 API_BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
 
-ROLE_OPTIONS = ["ANNOTATION", "QC", "LIVE_QC", "RETRO_QC", "PM", "APM", "RPM"]
+ROLE_OPTIONS = ["Panelist", "Quality Check", "Annotation", "Retro Quality Check", "Super Quality Check", "Proctoring", "Operations"]
 
 # --- HELPER FUNCTIONS ---
 # def authenticated_request(method, endpoint, data=None):
