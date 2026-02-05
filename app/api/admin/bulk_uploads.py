@@ -10,6 +10,7 @@ from app.models.project_members import ProjectMember
 import csv
 import io
 from datetime import datetime, timedelta
+from app.utils.timezone import now_ist
 
 router = APIRouter(prefix="/admin/bulk_uploads", tags=["Admin - BulkUploads"])
 
@@ -476,7 +477,7 @@ async def bulk_upload_quality(
                 notes=notes,
                 source="MANUAL",
                 assessed_by_user_id=current_user.id,
-                assessed_at=datetime.now(),
+                assessed_at=now_ist(),
                 is_current=True,
                 valid_from=valid_from_datetime,
                 valid_to=None

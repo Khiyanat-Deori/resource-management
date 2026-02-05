@@ -6,6 +6,7 @@ from datetime import date
 
 from app.db.session import SessionLocal
 from app.models.user import User, UserRole
+from app.utils.timezone import today_ist
 
 # Note: uuid and date are still used in DISABLE_AUTH mode for creating local admin user
 
@@ -53,7 +54,7 @@ if DISABLE_AUTH:
                 name="Local Admin",
                 role=UserRole.ADMIN,
                 is_active=True,
-                doj=date.today(),
+                doj=today_ist(),
             )
             db.add(user)
             db.commit()

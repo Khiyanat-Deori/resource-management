@@ -20,6 +20,7 @@ from app.models.user_quality import UserQuality, QualityRating
 from app.models.user import User
 from sqlalchemy import func
 from uuid import UUID
+from app.utils.timezone import today_ist
 
 # Configure logger
 logging.basicConfig(
@@ -230,7 +231,7 @@ def calculate_all_projects_automatically():
         
         # Calculate for last 30 days to catch up on any missed calculations
         # This ensures graphs show data for the past month
-        today = date.today()
+        today = today_ist()
         dates_to_process = [today - timedelta(days=i) for i in range(30)]
         
         total_processed = 0

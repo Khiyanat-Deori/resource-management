@@ -1,13 +1,15 @@
 import streamlit as st
 import requests
 import time
+import os
 from datetime import datetime, date
 from role_guard import setup_role_access
+from utils.timezone import now_ist, today_ist, parse_to_ist, IST
 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="Home", layout="wide")
 setup_role_access(__file__)
-API_BASE_URL = "http://127.0.0.1:8000"
+API_BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
 
 # --- CUSTOM CSS FOR DARK MODE UI ---
 st.markdown("""
@@ -87,6 +89,21 @@ def authenticated_request(method, endpoint, data=None, params=None):
         st.stop()
     return api_request(method, endpoint, token=token, json=data, params=params)
 
+
+@st.cache_data(ttl=30, show_spinner=False)
+def _cached_projects(token: str):
+    return api_request("GET", "/admin/projects/", token=token) or []
+
+
+@st.cache_data(ttl=15, show_spinner=False)
+def _cached_today_sessions(token: str, start_date: str, end_date: str):
+    return api_request(
+        "GET",
+        "/time/history",
+        token=token,
+        params={"start_date": start_date, "end_date": end_date},
+    ) or []
+
 # ---------------------------------------------------------
 # HELPERS: TIME DISPLAY
 # ---------------------------------------------------------
@@ -109,8 +126,8 @@ def calculate_hours_worked(clock_in, clock_out, minutes_worked):
         return format_duration_hhmmss(total_seconds)
 
     try:
-        ci = datetime.fromisoformat(clock_in.replace("Z", ""))
-        co = datetime.fromisoformat(clock_out.replace("Z", ""))
+        ci = parse_to_ist(clock_in)
+        co = parse_to_ist(clock_out)
         total_seconds = int((co - ci).total_seconds())
         return format_duration_hhmmss(total_seconds)
     except Exception:
@@ -120,7 +137,7 @@ def split_datetime(ts):
     if not ts:
         return "-", "-"
     try:
-        dt = datetime.fromisoformat(ts.replace("Z", ""))
+        dt = parse_to_ist(ts)
         return dt.date().isoformat(), dt.strftime("%I:%M %p")
     except Exception:
         return "-", "-"
@@ -164,8 +181,8 @@ if user:
         user_name = user.email
 
 st.markdown(f"# Welcome, {user_name}")
-current_time_str = datetime.now().strftime("%H:%M:%S")
-st.caption(f"Current time: {current_time_str}")
+current_time_str = now_ist().strftime("%H:%M:%S")
+st.caption(f"Current time (IST): {current_time_str}")
 st.divider()
 
 
@@ -212,8 +229,9 @@ with st.container(border=True):
     with col_right:
         st.subheader("Assignment Controls")
         
-        # Fetch Projects from Admin API (reused)
-        assignments = authenticated_request("GET", "/admin/projects/") or []
+        # Fetch Projects from Admin API (cached)
+        token = st.session_state.get("token")
+        assignments = _cached_projects(token) if token else []
         project_map = {p['name']: p for p in assignments}
         
         disabled_flag = False
@@ -246,7 +264,15 @@ with st.container(border=True):
                 if role and role.upper() != "N/A" and role not in role_options:
                     role_options.append(role)
 
-            default_roles = ["ANNOTATION", "QC", "Super QC", "Live QC", "Retro QC", "Reasearch", "Other"]
+            default_roles = [
+                "Annotation",
+                "Panelist",
+                "Proctoring",
+                "Quality Check",
+                "Retro Quality Check",
+                "Super Quality Check",
+                "Operations",
+            ]
             for role in default_roles:
                 if role not in role_options:
                     role_options.append(role)
@@ -275,29 +301,25 @@ with st.container(border=True):
             if st.button("Start work session", type="primary", use_container_width=True):
                 if selected_proj_name:
                     proj_id = project_map[selected_proj_name]['id']
-                    clock_in_at = datetime.now().isoformat()
+                    clock_in_at = now_ist().isoformat()
                     resp = authenticated_request("POST", "/time/clock-in", data={
                         "project_id": proj_id,
                         "work_role": role_val,
                         "clock_in_at": clock_in_at,
                     })
                     if resp:
-                        time.sleep(1)
+                        st.cache_data.clear()
                         st.rerun()
                 else:
                     st.warning("Please select a project first.")
 
 # --- 3B. TODAY'S CLOCK IN / OUT DETAILS ---
 st.subheader("Today's Sessions")
-today_str = date.today().isoformat()
-today_sessions = authenticated_request(
-    "GET",
-    "/time/history",
-    params={
-        "start_date": today_str,
-        "end_date": today_str,
-    },
-) or []
+today_str = today_ist().isoformat()
+token = st.session_state.get("token")
+today_sessions = (
+    _cached_today_sessions(token, today_str, today_str) if token else []
+)
 
 if not today_sessions:
     st.info("No clock-in / clock-out sessions found for today.")
@@ -306,8 +328,8 @@ else:
     def session_sort_key(session):
         ts = session.get("clock_out_at") or session.get("clock_in_at")
         if not ts:
-            return datetime.min
-        return datetime.fromisoformat(ts.replace("Z", ""))
+            return datetime.min.replace(tzinfo=IST)
+        return parse_to_ist(ts)
 
     today_sessions.sort(key=session_sort_key, reverse=True)
 
@@ -361,7 +383,7 @@ def clock_out_dialog():
             if resp:
                 st.success("Saved. Great work today.")
                 st.session_state['show_clockout_popup'] = False
-                time.sleep(1.5)
+                st.cache_data.clear()
                 st.rerun()
 
     with c_cancel:

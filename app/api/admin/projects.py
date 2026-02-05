@@ -4,6 +4,7 @@ from sqlalchemy import or_
 from typing import Optional
 from uuid import UUID
 from datetime import date
+from app.utils.timezone import today_ist
 from app.db.session import SessionLocal
 from app.models.project import Project
 from app.schemas.project import ProjectCreate, ProjectResponse
@@ -80,7 +81,7 @@ def list_projects(
     # Fetch all active project memberships for this user
     # Check both is_active AND date ranges to ensure assignment is valid for the reference date
     # If reference_date is not provided, use today's date
-    check_date = reference_date if reference_date is not None else date.today()
+    check_date = reference_date if reference_date is not None else today_ist()
     
     my_memberships = db.query(ProjectMember).filter(
         ProjectMember.user_id == current_user.id,

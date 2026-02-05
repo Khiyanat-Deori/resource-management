@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from typing import Dict, List, Optional
 import time
 from role_guard import get_user_role
+from utils.timezone import today_ist, parse_to_ist, format_time_ist
 import base64
 
 load_dotenv()
@@ -118,13 +119,13 @@ observer.observe(document.body, { childList: true, subtree: true, attributes: tr
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 
 WORK_ROLE_OPTIONS = [
-    "ANNOTATION",
-    "QC",
-    "LIVE_QC",
-    "RETRO_QC",
-    "PM",
-    "APM",
-    "RPM",
+    "Panelist",
+    "Quality Check",
+    "Annotation",
+    "Retro Quality Check",
+    "Super Quality Check",
+    "Proctoring",
+    "Operations",
 ]
 
 # ---------------------------------------------------------
@@ -142,8 +143,7 @@ def format_time(ts):
     if not ts:
         return "-"
     try:
-        dt = datetime.fromisoformat(str(ts).replace("Z", ""))
-        return dt.strftime("%I:%M %p")
+        return format_time_ist(ts)
     except Exception:
         return "-"
 
@@ -154,8 +154,8 @@ def calculate_hours_worked(clock_in, clock_out, minutes_worked):
         total_seconds = int(minutes_worked * 60)
         return format_duration_hhmmss(total_seconds)
     try:
-        ci = datetime.fromisoformat(str(clock_in).replace("Z", ""))
-        co = datetime.fromisoformat(str(clock_out).replace("Z", ""))
+        ci = parse_to_ist(clock_in)
+        co = parse_to_ist(clock_out)
         total_seconds = int((co - ci).total_seconds())
         return format_duration_hhmmss(total_seconds)
     except Exception:
@@ -564,7 +564,6 @@ if "allocation_page_init" not in st.session_state:
 # ---------------------------------------------------------
 st.title("📊 Project Resource Allocation Dashboard")
 st.caption("Comprehensive resource allocation, attendance, and productivity overview")
-st.info("ℹ️ **Real-time Updates:** Data refreshes every 10 seconds automatically. Use the 'Refresh Data' button to see your latest tasks and hours immediately after completing work.")
 st.markdown("---")
 
 # ---------------------------------------------------------
@@ -572,7 +571,7 @@ st.markdown("---")
 # ---------------------------------------------------------
 col_date, col_refresh = st.columns([4, 1])
 with col_date:
-    selected_date = st.date_input("Select Date", value=date.today(), max_value=date.today(), key="allocation_date")
+    selected_date = st.date_input("Select Date", value=today_ist(), max_value=today_ist(), key="allocation_date")
 with col_refresh:
     st.write("")  # Spacing
     if st.button("🔄 Refresh Data", use_container_width=True, help="Clear cache and reload all data to see latest updates"):
@@ -662,7 +661,7 @@ with tab1:
                 f"*The page cannot function without a working API server.*")
         print(f"[DEBUG] No users_data returned. Primary API failed, fallback also returned empty.")
     
-    # Filter users with role='USER' or role='ADMIN' - handle both string and enum role values
+    # Filter users with role='USER' only - handle both string and enum role values
     user_role_users = []
     for u in users_data:
         if not isinstance(u, dict):
@@ -678,17 +677,17 @@ with tab1:
         if len(user_role_users) < 3:
             print(f"[DEBUG] User {u.get('name', 'Unknown')}: role={role}, role_str={role_str}")
         
-        # Include both USER and ADMIN roles
-        if role_str == "USER" or role_str == "ADMIN":
+        # Include only USER role
+        if role_str == "USER":
             user_role_users.append(u)
     
     # Debug: Show filtering results
     if users_data and not user_role_users:
-        st.warning(f"⚠️ Found {len(users_data)} user(s) but none have role='USER' or 'ADMIN'. Showing all users instead.")
-        # If no USER/ADMIN role users found, show all users
+        st.warning(f"⚠️ Found {len(users_data)} user(s) but none have role='USER'. Showing all users instead.")
+        # If no USER role users found, show all users
         user_role_users = users_data
         sample_roles = [str(u.get('role', 'N/A')) for u in users_data[:5]]
-        print(f"[DEBUG] No users with role='USER' or 'ADMIN' found. Roles found: {sample_roles}")
+        print(f"[DEBUG] No users with role='USER' found. Roles found: {sample_roles}")
     
     # Calculate counts
     total_users = len(user_role_users)
@@ -865,7 +864,7 @@ with tab1:
     # Debug display in UI (collapsible)
     with st.expander("🔍 Debug Info (Click to see)", expanded=False):
         st.write(f"**Users Data:** {len(users_data) if users_data else 0} users loaded")
-        st.write(f"**User Role Users (USER/ADMIN):** {len(user_role_users)} users after filtering")
+        st.write(f"**User Role Users (USER only):** {len(user_role_users)} users after filtering")
         st.write(f"**Name Mapping:** {len(st.session_state.get('user_name_mapping_fallback', {}))} users in mapping")
         st.write(f"**Today's Weekday:** {today_weekday}")
         st.write(f"**Selected Date:** {selected_date.isoformat()}")
@@ -893,7 +892,7 @@ with tab1:
                 sample_statuses = [u.get("today_status", "N/A") for u in user_role_users[:10]]
                 st.write(f"**Sample statuses from first 10 users:** {sample_statuses}")
         if weekoff_users_not_in_role_list:
-            st.warning(f"⚠️ **{len(weekoff_users_not_in_role_list)} user(s) with weekoff today are NOT in the USER/ADMIN role list!** They may be MANAGER or filtered out.")
+            st.warning(f"⚠️ **{len(weekoff_users_not_in_role_list)} user(s) with weekoff today are NOT in the USER role list!** They may be ADMIN, MANAGER, or filtered out.")
             missing_info = []
             for missing_user in weekoff_users_not_in_role_list[:5]:
                 missing_info.append(f"{missing_user['name']} (Role: {missing_user['role']}, Weekoffs: {missing_user['weekoffs']})")
@@ -910,8 +909,6 @@ with tab1:
     
     # SECTION 1: USER DASHBOARD
     st.markdown("## 👥 User Overview")
-    st.markdown("Dashboard showing Total users count with role 'USER' or 'ADMIN', Count of present, absent, leave, allocated, not allocated, and weekoff")
-    st.caption("📊 **How Total Users are Calculated:** Total Users = All users in the system with role 'USER' or 'ADMIN' (excluding MANAGER role). Total Users = Present + Absent + Leave + Weekoff. WFH users are included in the Absent count. Weekoff users are determined by checking if today's weekday matches their configured weekoff days.")
     
     # Display clickable metrics
     col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
@@ -989,7 +986,7 @@ with tab1:
     # Note: Weekoff users are excluded from Present/Absent/Leave counts
     total_without_weekoff = present_count + absent_count + leave_count
     if total_without_weekoff + weekoff_count == total_users:
-        st.caption(f"ℹ️ **Status Breakdown:** Present ({present_count}) + Absent ({absent_count}) + Leave ({leave_count}) + Weekoff ({weekoff_count}) = {total_users} | Total Users: {total_users} ✅")
+        st.caption(f"ℹ️ **Status Breakdown:** Present ({present_count}) + Absent ({absent_count}) + Leave ({leave_count}) + Weekoff ({weekoff_count}) = {total_users} | Total Users: {total_users} ")
     else:
         st.warning(f"⚠️ **Mismatch:** Present ({present_count}) + Absent ({absent_count}) + Leave ({leave_count}) + Weekoff ({weekoff_count}) = {total_without_weekoff + weekoff_count} | Total Users: {total_users} (Difference: {total_users - (total_without_weekoff + weekoff_count)})")
     
@@ -1001,7 +998,7 @@ with tab1:
         len(st.session_state.user_list_data) > 0):
         
         list_title = {
-            "total": "All Users (Role: USER or ADMIN)",
+            "total": "All Users (Role: USER)",
             "present": "Present Users",
             "absent": "Absent Users",
             "leave": "Leave Users",
@@ -1166,8 +1163,6 @@ with tab1:
     
     # SECTION 3: PROJECT CARDS
     st.markdown("## 📁 Project Cards")
-    st.markdown("Project cards showing total number of tasks performed, total hours clocked, and count of different roles")
-    st.caption("ℹ️ **Note:** The 'Total Users' count in project cards shows users with role='USER' or 'ADMIN' to match the 'Allocated' card count. Click 'Total Users' to see all project members including MANAGER roles.")
     
     # Fetch project data with metrics (using cached functions)
     projects_with_metrics = []
@@ -1193,59 +1188,59 @@ with tab1:
         allocation_data = get_project_allocation_cached(project_id, date_str, only_active=True)
         
         total_users_in_project = 0
-        total_user_admin_role_members = 0  # Count USER and ADMIN role members (to match Allocated card)
+        total_user_role_members = 0  # Count USER role members only (to match Allocated card)
         if allocation_data:
             # First, try to use total_resources from API response (most reliable)
             if "total_resources" in allocation_data:
                 total_all_members = allocation_data.get("total_resources", 0)
-                # Filter to count only USER and ADMIN role members (to match Allocated card logic)
+                # Filter to count only USER role members (to match Allocated card logic)
                 if allocation_data.get("resources"):
                     resources = aggregate_by_user(allocation_data["resources"])
-                    # Count only members with designation='USER' or 'ADMIN' (matching Allocated card filter)
-                    user_admin_role_resources = [
+                    # Count only members with designation='USER' (matching Allocated card filter)
+                    user_role_resources = [
                         r for r in resources 
-                        if r.get("designation", "").upper() in ["USER", "ADMIN"]
+                        if r.get("designation", "").upper() == "USER"
                     ]
-                    total_user_admin_role_members = len(user_admin_role_resources)
-                    total_users_in_project = total_user_admin_role_members  # Use filtered count
-                    print(f"[DEBUG] Project {project.get('name', project_id)}: Total members={total_all_members}, USER/ADMIN role members={total_user_admin_role_members} (showing USER/ADMIN count to match Allocated card)")
+                    total_user_role_members = len(user_role_resources)
+                    total_users_in_project = total_user_role_members  # Use filtered count
+                    print(f"[DEBUG] Project {project.get('name', project_id)}: Total members={total_all_members}, USER role members={total_user_role_members} (showing USER count to match Allocated card)")
                 else:
                     total_users_in_project = total_all_members
                     print(f"[DEBUG] Project {project.get('name', project_id)}: Using total_resources={total_users_in_project} (active members only, no role filter)")
             # Fallback: calculate from resources array if total_resources not available
             elif allocation_data.get("resources"):
                 resources = aggregate_by_user(allocation_data["resources"])
-                # Filter to count only USER and ADMIN role members
-                user_admin_role_resources = [
+                # Filter to count only USER role members
+                user_role_resources = [
                     r for r in resources 
-                    if r.get("designation", "").upper() in ["USER", "ADMIN"]
+                    if r.get("designation", "").upper() == "USER"
                 ]
-                total_user_admin_role_members = len(user_admin_role_resources)
-                total_users_in_project = total_user_admin_role_members  # Use filtered count
-                print(f"[DEBUG] Project {project.get('name', project_id)}: Calculated from resources - Total={len(resources)}, USER/ADMIN role={total_user_admin_role_members} (showing USER/ADMIN count)")
+                total_user_role_members = len(user_role_resources)
+                total_users_in_project = total_user_role_members  # Use filtered count
+                print(f"[DEBUG] Project {project.get('name', project_id)}: Calculated from resources - Total={len(resources)}, USER role={total_user_role_members} (showing USER count)")
             
             # If we got 0 active members, try fetching all members (including inactive) to see if that's the issue
             if total_users_in_project == 0:
-                print(f"[DEBUG] Project {project.get('name', project_id)} (ID: {project_id}): No active USER/ADMIN role members found. "
+                print(f"[DEBUG] Project {project.get('name', project_id)} (ID: {project_id}): No active USER role members found. "
                       f"Trying with only_active=False to check for inactive members...")
                 # Try with inactive members (different cache key, so no need to clear)
                 allocation_data_all = get_project_allocation_cached(project_id, date_str, only_active=False)
                 if allocation_data_all and allocation_data_all.get("resources"):
                     resources_all = aggregate_by_user(allocation_data_all["resources"])
-                    # Still filter by USER/ADMIN role even for inactive members
-                    user_admin_role_resources_all = [
+                    # Still filter by USER role even for inactive members
+                    user_role_resources_all = [
                         r for r in resources_all 
-                        if r.get("designation", "").upper() in ["USER", "ADMIN"]
+                        if r.get("designation", "").upper() == "USER"
                     ]
-                    total_user_admin_role_members = len(user_admin_role_resources_all)
-                    total_users_in_project = total_user_admin_role_members
-                    print(f"[DEBUG] Project {project.get('name', project_id)}: Found {total_user_admin_role_members} USER/ADMIN role members (including inactive) out of {len(resources_all)} total members")
+                    total_user_role_members = len(user_role_resources_all)
+                    total_users_in_project = total_user_role_members
+                    print(f"[DEBUG] Project {project.get('name', project_id)}: Found {total_user_role_members} USER role members (including inactive) out of {len(resources_all)} total members")
                     # Update allocation_data to include all members
                     allocation_data = allocation_data_all
                 elif allocation_data_all and allocation_data_all.get("total_resources", 0) > 0:
-                    # If we can't filter by role, use total but note it might include non-USER/ADMIN roles
+                    # If we can't filter by role, use total but note it might include non-USER roles
                     total_users_in_project = allocation_data_all.get("total_resources", 0)
-                    print(f"[DEBUG] Project {project.get('name', project_id)}: Found {total_users_in_project} total members (including inactive, may include non-USER/ADMIN roles)")
+                    print(f"[DEBUG] Project {project.get('name', project_id)}: Found {total_users_in_project} total members (including inactive, may include non-USER roles)")
                     allocation_data = allocation_data_all
         else:
             print(f"[DEBUG] Project {project.get('name', project_id)} (ID: {project_id}): allocation_data is None - API call failed or returned no data")
@@ -1253,17 +1248,17 @@ with tab1:
             allocation_data = get_project_allocation_cached(project_id, date_str, only_active=False)
             if allocation_data and allocation_data.get("resources"):
                 resources = aggregate_by_user(allocation_data["resources"])
-                # Filter to count only USER and ADMIN role members
-                user_admin_role_resources = [
+                # Filter to count only USER role members
+                user_role_resources = [
                     r for r in resources 
-                    if r.get("designation", "").upper() in ["USER", "ADMIN"]
+                    if r.get("designation", "").upper() == "USER"
                 ]
-                total_user_admin_role_members = len(user_admin_role_resources)
-                total_users_in_project = total_user_admin_role_members
-                print(f"[DEBUG] Project {project.get('name', project_id)}: Fallback succeeded, found {total_user_admin_role_members} USER/ADMIN role members (including inactive) out of {len(resources)} total")
+                total_user_role_members = len(user_role_resources)
+                total_users_in_project = total_user_role_members
+                print(f"[DEBUG] Project {project.get('name', project_id)}: Fallback succeeded, found {total_user_role_members} USER role members (including inactive) out of {len(resources)} total")
             elif allocation_data and "total_resources" in allocation_data:
                 total_users_in_project = allocation_data.get("total_resources", 0)
-                print(f"[DEBUG] Project {project.get('name', project_id)}: Fallback succeeded, found {total_users_in_project} members (including inactive, may include non-USER/ADMIN roles)")
+                print(f"[DEBUG] Project {project.get('name', project_id)}: Fallback succeeded, found {total_users_in_project} members (including inactive, may include non-USER roles)")
             else:
                 # Show a warning in the UI for debugging (only once per project)
                 if not hasattr(st.session_state, 'allocation_warnings_shown'):
@@ -1590,16 +1585,16 @@ with tab1:
                 
                 elif st.session_state.show_project_list.startswith("users_"):
                     st.markdown(f"### 📋 Users in Project - {proj.get('name')}")
-                    st.caption("ℹ️ Showing users with role='USER' or 'ADMIN' to match the Total Users count. Use the expander below to see all members including MANAGER roles.")
+                    st.caption("ℹ️ Showing users with role='USER' to match the Total Users count. Use the expander below to see all members including ADMIN and MANAGER roles.")
                     if proj_data.get("allocation_data") and proj_data["allocation_data"].get("resources"):
                         resources = aggregate_by_user(proj_data["allocation_data"]["resources"])
-                        # Filter to show only USER and ADMIN role members (to match the count)
-                        user_admin_resources = [
+                        # Filter to show only USER role members (to match the count)
+                        user_resources = [
                             r for r in resources 
-                            if r.get("designation", "").upper() in ["USER", "ADMIN"]
+                            if r.get("designation", "").upper() == "USER"
                         ]
                         user_list = []
-                        for r in user_admin_resources:
+                        for r in user_resources:
                             user_metrics = [m for m in proj_data["metrics"] if m.get("user_id") == r.get("user_id")]
                             total_user_hours = sum(float(m.get("hours_worked", 0) or 0) for m in user_metrics)
                             total_user_tasks = sum(int(m.get("tasks_completed", 0) or 0) for m in user_metrics)
@@ -1618,10 +1613,10 @@ with tab1:
                             st.dataframe(df_users, use_container_width=True, height=400)
                             export_csv(f"{proj.get('name')}_users_{selected_date}.csv", user_list)
                         else:
-                            st.info("No users with USER/ADMIN roles found in this project.")
+                            st.info("No users with USER role found in this project.")
                         
                         # Show all members (including MANAGER) in an expander
-                        if len(resources) > len(user_admin_resources):
+                        if len(resources) > len(user_resources):
                             with st.expander(f"📋 Show All Members (including MANAGER roles) - {len(resources)} total"):
                                 all_user_list = []
                                 for r in resources:

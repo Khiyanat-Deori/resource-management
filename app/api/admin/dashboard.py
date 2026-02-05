@@ -15,6 +15,7 @@ from app.schemas.dashboard import (
     PendingApprovalResponse
 )
 from app.core.dependencies import get_current_user
+from app.utils.timezone import now_ist, today_ist
 
 # Define the Router
 router = APIRouter(prefix="/admin/dashboard", tags=["Admin - Dashboard"])
@@ -40,7 +41,7 @@ def get_global_stats(db: Session = Depends(get_db)):
 
     # 3. Sum Hours Worked Today
     today_minutes = db.query(func.sum(TimeHistory.minutes_worked)).filter(
-        TimeHistory.sheet_date == date.today()
+        TimeHistory.sheet_date == today_ist()
     ).scalar() or 0  # .scalar() handles the case where no work happened yet
     
     total_hours = round(today_minutes / 60, 1)
@@ -70,7 +71,7 @@ def get_live_workers(db: Session = Depends(get_db)):
     ).all()
 
     results = []
-    now = datetime.now()
+    now = now_ist()
 
     for session in active_sessions:
         # Calculate how long they have been running (in minutes)

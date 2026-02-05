@@ -7,10 +7,8 @@ pydantic
 supabase
 streamlit
 resend
-APscheduler
-
-
- 
+apscheduler
+pytz
 certifi==2025.11.12
 click==8.1.8
 dnspython==2.7.0

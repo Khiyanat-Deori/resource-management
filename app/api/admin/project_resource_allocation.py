@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session, aliased
 
 from app.core.dependencies import get_current_user, get_db
+from app.utils.timezone import today_ist
 from app.models.project_members import ProjectMember
 from app.models.user import User
 from app.models.attendance_daily import AttendanceDaily
@@ -21,7 +22,7 @@ router = APIRouter(
 @router.get("/")
 def project_resource_allocation(
     project_id: str = Query(..., description="Project UUID"),
-    target_date: date = Query(date.today()),
+    target_date: date = Query(default_factory=today_ist),
     only_active: bool = Query(True),
     only_pm_apm: bool = Query(False),
     db: Session = Depends(get_db),
@@ -116,7 +117,7 @@ def project_resource_allocation(
 @router.get("/role-counts")
 def get_project_role_counts(
     project_id: str = Query(..., description="Project UUID"),
-    target_date: date = Query(date.today()),
+    target_date: date = Query(default_factory=today_ist),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):

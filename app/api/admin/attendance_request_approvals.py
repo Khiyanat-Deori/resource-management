@@ -17,6 +17,7 @@ from app.schemas.attendance_request_approval import (
 from app.core.dependencies import get_current_user
 from app.models.user import User
 from app.services.notification_service import send_attendance_request_decision_email
+from app.utils.timezone import now_ist
 
 router = APIRouter(
     prefix="/admin/attendance-request-approvals",
@@ -57,7 +58,7 @@ def create_approval(
     
     # 4. CRITICAL: Update the Parent Request Status
     request.status = payload.decision  # 'APPROVED' or 'REJECTED'
-    request.updated_at = datetime.utcnow()
+    request.updated_at = now_ist()
 
     # 5. AUTOMATION: If Approved, update the Daily Roster (AttendanceDaily)
     # This ensures the user shows as "LEAVE" or "WFH" on the dashboard instead of "ABSENT"

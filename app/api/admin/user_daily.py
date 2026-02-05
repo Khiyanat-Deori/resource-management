@@ -16,6 +16,7 @@ from app.schemas.user_daily_metrics import (
     UserDailyMetricsCreate,
     UserDailyMetricsResponse
 )
+from app.utils.timezone import now_ist
 
 router = APIRouter(prefix="/admin/metrics/user_daily", tags=["Metrics"])
 
@@ -332,7 +333,7 @@ def create_quality_assessment(
     # Archive existing record if it exists
     if current_quality:
         current_quality.is_current = False
-        current_quality.valid_to = datetime.now()
+        current_quality.valid_to = now_ist()
     
     # Create new quality record
     # Use metric_date for valid_from so the quality assessment applies to the selected date
@@ -350,7 +351,7 @@ def create_quality_assessment(
         notes=payload.notes,
         source="MANUAL",
         assessed_by_user_id=assessed_by,
-        assessed_at=datetime.now(),  # When it was assessed (now)
+        assessed_at=now_ist(),  # When it was assessed (now)
         is_current=True,
         valid_from=valid_from_datetime,  # When it becomes valid (the metric_date)
         valid_to=None

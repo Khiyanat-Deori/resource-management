@@ -13,6 +13,7 @@ from app.core.dependencies import get_current_user
 from app.models.user import User
 
 from app.schemas.history import ApprovalRequest
+from app.utils.timezone import now_ist, today_ist
 
 router = APIRouter(prefix="/time", tags=["Time Tracking"])
 
@@ -44,8 +45,8 @@ def clock_in(
 
     # Create new session
     # Note: sheet_date defaults to today, status defaults to 'PENDING'
-    clock_in_at = payload.clock_in_at or datetime.now()
-    today = date.today()
+    clock_in_at = payload.clock_in_at or now_ist()
+    today = today_ist()
     new_session = TimeHistory(
         user_id=current_user.id,
         project_id=payload.project_id,
@@ -130,7 +131,7 @@ def clock_out(
         )
 
     # Update the session
-    clock_out_at = datetime.now()
+    clock_out_at = now_ist()
     active_session.clock_out_at = clock_out_at
     active_session.tasks_completed = payload.tasks_completed
     active_session.notes = payload.notes
@@ -140,7 +141,7 @@ def clock_out(
     active_session.minutes_worked = round(minutes_worked, 2)
     
     # Update AttendanceDaily record with clock out time
-    today = date.today()
+    today = today_ist()
     existing_attendance = db.query(AttendanceDaily).filter(
         AttendanceDaily.user_id == current_user.id,
         AttendanceDaily.project_id == active_session.project_id,
@@ -209,7 +210,7 @@ def approve_session(
     session.status = payload.status
     session.approval_comment = payload.approval_comment
     session.approved_by_user_id = "087084fa-aff2-4c10-bb72-5b0c9963c4d5"
-    session.approved_at = datetime.now()
+    session.approved_at = now_ist()
     
     db.commit()
     db.refresh(session)

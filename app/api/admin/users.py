@@ -11,6 +11,7 @@ from app.schemas.user import UserBatchUpdateRequest, UserCreate, UserResponse, U
 from typing import List, Optional
 from uuid import UUID
 from datetime import date
+from app.utils.timezone import today_ist
 from math import ceil
 import os
 
@@ -84,7 +85,7 @@ def kpi_cards_info(
     allocated = db.query(func.count(func.distinct(ProjectMember.user_id))).scalar()
     unallocated = total_users - allocated
     contractors = db.query(User).filter(User.work_role == 'CONTRACTOR').count()
-    todays_date = date.today()
+    todays_date = today_ist()
     on_leave = db.query(func.count(func.distinct(AttendanceDaily.user_id))).filter(
         AttendanceDaily.attendance_date == todays_date,
         AttendanceDaily.status == "LEAVE"
@@ -141,9 +142,9 @@ def search_with_filters(
             from datetime import datetime as dt
             today = dt.fromisoformat(date_str).date() if isinstance(date_str, str) else date_str
         except (ValueError, AttributeError):
-            today = date.today()
+            today = today_ist()
     else:
-        today = date.today()
+        today = today_ist()
     Manager = aliased(User)
 
     project_count_sq = (
