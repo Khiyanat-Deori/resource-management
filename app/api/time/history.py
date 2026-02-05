@@ -135,6 +135,10 @@ def clock_out(
     active_session.tasks_completed = payload.tasks_completed
     active_session.notes = payload.notes
     
+    # Calculate minutes worked from clock in to clock out
+    minutes_worked = (clock_out_at - active_session.clock_in_at).total_seconds() / 60
+    active_session.minutes_worked = round(minutes_worked, 2)
+    
     # Update AttendanceDaily record with clock out time
     today = date.today()
     existing_attendance = db.query(AttendanceDaily).filter(
@@ -145,9 +149,7 @@ def clock_out(
     
     if existing_attendance:
         existing_attendance.last_clock_out_at = clock_out_at
-        # Update minutes_worked if available from the session
-        if active_session.minutes_worked:
-            existing_attendance.minutes_worked = active_session.minutes_worked
+        existing_attendance.minutes_worked = active_session.minutes_worked
     
     db.commit()
     db.refresh(active_session)
