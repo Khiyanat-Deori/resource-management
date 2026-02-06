@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Depends, Query, HTTPException, status
-from sqlalchemy import func
+from sqlalchemy import func, case, and_, literal
 from sqlalchemy.orm import Session, aliased
 from app.db.session import SessionLocal
 from app.models.shift import Shift
 from app.models.user import User, UserRole
 from app.models.project_members import ProjectMember
 from app.models.attendance_daily import AttendanceDaily
+from app.models.attendance_request import AttendanceRequest
 from app.core.dependencies import get_current_user
 from app.schemas.user import UserBatchUpdateRequest, UserCreate, UserResponse, UserUpdate, UserQualityUpdate, UserSystemUpdate, UsersAdminSearchFilters, UserBatchUpdate
 from typing import List, Optional
@@ -170,6 +171,23 @@ def search_with_filters(
         .subquery()
     )
     
+    # Query approved leave requests for today
+    # Leave types: SICK_LEAVE, FULL-DAY, HALF-DAY (using hyphens as per DB enum)
+    leave_sq = (
+        db.query(
+            AttendanceRequest.user_id.label("user_id"),
+            func.max(AttendanceRequest.request_type).label("leave_type"),
+        )
+        .filter(
+            AttendanceRequest.status == "APPROVED",
+            AttendanceRequest.start_date <= today,
+            AttendanceRequest.end_date >= today,
+            AttendanceRequest.request_type.in_(["SICK_LEAVE", "FULL-DAY", "HALF-DAY"])
+        )
+        .group_by(AttendanceRequest.user_id)
+        .subquery()
+    )
+    
     # Debug: Log the date being used for the query
     import logging
     logger = logging.getLogger(__name__)
@@ -180,6 +198,19 @@ def search_with_filters(
         AttendanceDaily.attendance_date == today
     ).count()
     logger.info(f"[ATTENDANCE QUERY] Found {attendance_count} attendance records for date {today}")
+
+    # Compute today_status: prioritize attendance record, then check for approved leave
+    # If user has attendance record -> use that status
+    # Else if user has approved leave -> show "LEAVE" 
+    # Else -> "UNKNOWN"
+    today_status_expr = case(
+        # If attendance record exists, use it
+        (attendance_sq.c.status.isnot(None), attendance_sq.c.status),
+        # If no attendance but has approved leave, show LEAVE
+        (leave_sq.c.leave_type.isnot(None), literal("LEAVE")),
+        # Default to UNKNOWN
+        else_=literal("UNKNOWN")
+    )
 
     query = (
         db.query(
@@ -200,13 +231,12 @@ def search_with_filters(
             func.coalesce(project_count_sq.c.project_count, 0).label(
                 "allocated_projects"
             ),
-            func.coalesce(attendance_sq.c.status, "UNKNOWN").label(
-                "today_status"
-            ),
+            today_status_expr.label("today_status"),
         )
         .outerjoin(Manager, Manager.id == User.rpm_user_id)
         .outerjoin(project_count_sq, project_count_sq.c.user_id == User.id)
         .outerjoin(attendance_sq, attendance_sq.c.user_id == User.id)
+        .outerjoin(leave_sq, leave_sq.c.user_id == User.id)
         .outerjoin(Shift, Shift.id == User.default_shift_id)
     ) 
 
@@ -234,9 +264,7 @@ def search_with_filters(
             )
 
     if status is not None:
-        query = query.filter(
-            func.coalesce(attendance_sq.c.status, "UNKNOWN") == status
-        )
+        query = query.filter(today_status_expr == status)
 
 
     results = query.all()

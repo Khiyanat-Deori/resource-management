@@ -782,14 +782,15 @@ with tab1:
         if status == "PRESENT":
             present_users.append(u)
             print(f"[DEBUG] User '{u.get('name', 'Unknown')}' is PRESENT (even if weekoff)")
-        elif is_weekoff_today and status not in ["PRESENT", "LEAVE"]:
+        elif is_weekoff_today and status not in ["PRESENT", "LEAVE", "ON_LEAVE", "HALF_DAY_LEAVE"]:
             # Only mark as weekoff if they haven't clocked in and it's their weekoff
             # Create a copy of the user dict and update status to WEEKOFF
             weekoff_user = u.copy()
             weekoff_user["today_status"] = "WEEKOFF"
             weekoff_users.append(weekoff_user)
             print(f"[DEBUG MATCH] ✅ User '{u.get('name', 'Unknown')}' added to weekoff list with status WEEKOFF!")
-        elif status == "LEAVE":
+        elif status in ["LEAVE", "ON_LEAVE", "HALF_DAY_LEAVE"]:
+            # Handle all leave statuses
             leave_users.append(u)
         elif status == "ABSENT":
             absent_users.append(u)
@@ -1063,49 +1064,46 @@ with tab1:
                     else:
                         st.info("No users found.")
                 elif st.session_state.show_user_list == "leave":
-                    # For Leave users, add a "View History" column using custom table
+                    # For Leave users, show a clean table with View History buttons
                     df_users = pd.DataFrame(st.session_state.user_list_data)
                     if not df_users.empty:
-                        # Get column names from dataframe
-                        columns = list(df_users.columns)
+                        # Select only the important columns for display
+                        display_columns = ["name", "email", "work_role", "today_status"]
+                        display_columns = [col for col in display_columns if col in df_users.columns]
                         
-                        # Create header row
-                        header_cols = st.columns([1] * len(columns) + [1.2])  # Extra column for View History
-                        for idx, col in enumerate(columns):
-                            with header_cols[idx]:
-                                st.markdown(f"**{col}**")
-                        with header_cols[-1]:
-                            st.markdown("**View History**")
+                        # Show the dataframe first
+                        df_display = df_users[display_columns].copy()
+                        df_display = df_display.rename(columns={
+                            "name": "Name",
+                            "email": "Email", 
+                            "work_role": "Work Role",
+                            "today_status": "Status"
+                        })
+                        st.dataframe(df_display, use_container_width=True, height=300)
                         
                         st.markdown("---")
+                        st.markdown("**View Leave History:**")
                         
-                        # Create data rows with View History buttons
-                        for row_idx, user in enumerate(st.session_state.user_list_data):
-                            row_cols = st.columns([1] * len(columns) + [1.2])
-                            
-                            # Display data columns
-                            for col_idx, col in enumerate(columns):
-                                with row_cols[col_idx]:
-                                    value = user.get(col, "")
-                                    st.write(str(value) if value is not None else "")
-                            
-                            # View History button column
-                            with row_cols[-1]:
-                                user_id = str(user.get("id", "")).strip()
-                                user_name = user.get("name", "Unknown")
-                                if st.button("📋 View History", key=f"view_history_{user_id}_{row_idx}", use_container_width=True):
-                                    # Store navigation parameters in session state
-                                    st.session_state.navigate_to_approvals = True
-                                    st.session_state.approval_tab = "history"
-                                    st.session_state.approval_user_id = user_id
-                                    st.session_state.approval_user_name = user_name
-                                    st.session_state.approval_date_from = selected_date.isoformat()
-                                    st.session_state.approval_date_to = selected_date.isoformat()
-                                    # Navigate to attendance approvals page
-                                    st.switch_page("app_pages/6_Attendance_Approvals.py")
-                            
-                            if row_idx < len(st.session_state.user_list_data) - 1:
-                                st.markdown("---")
+                        # Show View History buttons in a more compact layout (3 per row)
+                        users_list = st.session_state.user_list_data
+                        cols_per_row = 3
+                        for i in range(0, len(users_list), cols_per_row):
+                            row_users = users_list[i:i+cols_per_row]
+                            cols = st.columns(cols_per_row)
+                            for col_idx, user in enumerate(row_users):
+                                with cols[col_idx]:
+                                    user_id = str(user.get("id", "")).strip()
+                                    user_name = user.get("name", "Unknown")
+                                    if st.button(f"📋 {user_name}", key=f"view_history_{user_id}_{i+col_idx}", use_container_width=True):
+                                        # Store navigation parameters in session state
+                                        st.session_state.navigate_to_approvals = True
+                                        st.session_state.approval_tab = "history"
+                                        st.session_state.approval_user_id = user_id
+                                        st.session_state.approval_user_name = user_name
+                                        st.session_state.approval_date_from = selected_date.isoformat()
+                                        st.session_state.approval_date_to = selected_date.isoformat()
+                                        # Navigate to attendance approvals page
+                                        st.switch_page("app_pages/6_Attendance_Approvals.py")
                         
                         # Also show export option
                         export_csv(f"{list_title.replace(' ', '_')}_{selected_date}.csv", st.session_state.user_list_data)
@@ -1846,10 +1844,12 @@ with tab3:
                     user_weekoffs = user_weekoffs_map.get(user_id, user_weekoffs_map.get(user_id.lower(), user_weekoffs_map.get(user_id.upper(), [])))
                     is_weekoff = detail_weekday in user_weekoffs if user_weekoffs else False
                     
-                    # Normalize status: WFH -> ABSENT (consistent with Dashboard Overview)
+                    # Normalize status: WFH -> ABSENT, ON_LEAVE/HALF_DAY_LEAVE -> LEAVE (consistent with Dashboard Overview)
                     normalized_status = attendance_status
                     if attendance_status == "WFH":
                         normalized_status = "ABSENT"
+                    elif attendance_status in ["ON_LEAVE", "HALF_DAY_LEAVE"]:
+                        normalized_status = "LEAVE"
                     elif not attendance_status or attendance_status == "":
                         normalized_status = "ABSENT"
                     

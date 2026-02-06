@@ -92,7 +92,8 @@ def authenticated_request(method, endpoint, data=None, params=None):
 
 @st.cache_data(ttl=30, show_spinner=False)
 def _cached_projects(token: str):
-    return api_request("GET", "/admin/projects/", token=token) or []
+    # Only fetch active projects for clock-in dropdown (exclude paused/inactive projects)
+    return api_request("GET", "/admin/projects/", token=token, params={"is_active": True}) or []
 
 
 @st.cache_data(ttl=15, show_spinner=False)
