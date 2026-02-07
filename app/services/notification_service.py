@@ -67,10 +67,14 @@ def send_attendance_request_created_email(
     reason: Optional[str],
     project_names: Optional[str],
 ) -> None:
-    rpm_cc_email = os.getenv("RPM_CC_EMAIL")
-    cc_emails = None
-    if rpm_cc_email:
-        cc_emails = [email.strip() for email in rpm_cc_email.split(",") if email.strip()]
+    # TEMPORARILY COMMENTED OUT - CC to grootleave disabled
+    # Uncomment below to re-enable CC emails
+    # rpm_cc_email = os.getenv("RPM_CC_EMAIL")
+    # cc_emails = None
+    # if rpm_cc_email:
+    #     cc_emails = [email.strip() for email in rpm_cc_email.split(",") if email.strip()]
+    cc_emails = None  # CC disabled temporarily
+    
     send_attendance_request_decision_email(
         user_email=recipient_email,
         user_name=recipient_name or recipient_email,
