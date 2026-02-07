@@ -209,7 +209,7 @@ def approve_session(
     
     session.status = payload.status
     session.approval_comment = payload.approval_comment
-    session.approved_by_user_id = "087084fa-aff2-4c10-bb72-5b0c9963c4d5"
+    session.approved_by_user_id = current_user.id
     session.approved_at = now_ist()
     
     db.commit()
