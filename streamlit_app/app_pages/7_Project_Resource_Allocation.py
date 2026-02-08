@@ -217,11 +217,10 @@ def export_csv(filename, rows):
 def get_requests_session():
     """Create a requests session with connection pooling"""
     session = requests.Session()
-    # Configure adapter with connection pooling
-    # Don't retry on 500 errors - if server is broken, retrying won't help
+    # Configure adapter with connection pooling - increased for hosted environments
     adapter = requests.adapters.HTTPAdapter(
-        pool_connections=10,
-        pool_maxsize=10,
+        pool_connections=20,  # Increased from 10
+        pool_maxsize=50,  # Increased from 10 for better concurrency
         max_retries=requests.adapters.Retry(
             total=1,  # Reduced retries
             backoff_factor=0.3,
@@ -253,7 +252,7 @@ def authenticated_request(method, endpoint, params=None, json_data=None, retries
                     headers=headers,
                     params=params,
                     json=json_data,
-                    timeout=(10, 30)  # (connect timeout, read timeout)
+                    timeout=(5, 20)  # (connect timeout, read timeout) - optimized for hosted
                 )
             else:
                 r = session.request(
@@ -261,7 +260,7 @@ def authenticated_request(method, endpoint, params=None, json_data=None, retries
                     f"{API_BASE_URL}{endpoint}",
                     headers=headers,
                     params=params,
-                    timeout=(10, 30)
+                    timeout=(5, 20)  # Optimized for hosted environments
                 )
             if r.status_code >= 400:
                 error_detail = f"API Error {r.status_code}"
@@ -374,7 +373,7 @@ def get_user_name_mapping_from_data(users_data):
         print(f"[DEBUG] Sample user names: {unique_names}")
     return mapping
 
-@st.cache_data(ttl=30, show_spinner="Loading user data...")
+@st.cache_data(ttl=180, show_spinner="Loading user data...")
 def get_users_with_filter_cached(selected_date_str, silent_fail=False):
     """Cache user data for 30 seconds. If silent_fail=True, don't show API error in UI (for fallback flow)."""
     response = authenticated_request(
@@ -426,16 +425,36 @@ def get_users_fallback():
     print(f"[DEBUG] Fallback: Converted to {len(result)} user objects")
     return result
 
-@st.cache_data(ttl=10, show_spinner="Loading metrics...")  # Reduced to 10 seconds for more real-time updates
+@st.cache_data(ttl=120, show_spinner="Loading metrics...")  # 2 minutes cache for better performance
 def get_project_metrics_cached(project_id, start_date_str, end_date_str):
-    """Cache project metrics for 1 minute"""
+    """Cache project metrics for 2 minutes"""
     return authenticated_request("GET", "/admin/metrics/user_daily/", params={
         "project_id": project_id,
         "start_date": start_date_str,
         "end_date": end_date_str
     }) or []
 
-@st.cache_data(ttl=10, show_spinner="Loading role counts...")  # Reduced to 10 seconds for more real-time updates
+@st.cache_data(ttl=120, show_spinner="Loading metrics for multiple projects...")
+def get_multiple_projects_metrics_cached(project_ids, start_date_str, end_date_str):
+    """
+    Batch fetch metrics for multiple projects at once.
+    This reduces N+1 query problem and improves performance significantly.
+    """
+    if not project_ids:
+        return []
+    
+    # Convert UUIDs to strings if needed
+    project_ids_str = [str(pid) for pid in project_ids]
+    
+    result = authenticated_request("POST", "/admin/metrics/user_daily/batch", json_data={
+        "project_ids": project_ids_str,
+        "start_date": start_date_str,
+        "end_date": end_date_str
+    })
+    
+    return result or []
+
+@st.cache_data(ttl=120, show_spinner="Loading role counts...")  # 2 minutes cache for better performance
 def get_project_role_counts_cached(project_id, target_date_str):
     """Cache project role counts for 10 seconds
     
@@ -457,7 +476,7 @@ def get_project_role_counts_cached(project_id, target_date_str):
     
     return result
 
-@st.cache_data(ttl=10, show_spinner="Loading allocation data...")  # Reduced to 10 seconds for more real-time updates
+@st.cache_data(ttl=120, show_spinner="Loading allocation data...")  # 2 minutes cache for better performance
 def get_project_allocation_cached(project_id, target_date_str, only_active=True):
     """Cache project allocation for 1 minute
     

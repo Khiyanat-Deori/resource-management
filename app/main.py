@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 # from app.middlewares.auth import auth_middleware
 from app.api.admin import users, projects
 from app.api.admin import shifts
@@ -14,12 +15,17 @@ app = FastAPI(title="Resource Management System")
 
 # app.middleware("http")(auth_middleware)
 
+# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Add GZip compression middleware for better performance over network
+# Compresses responses > 1KB, significantly reduces bandwidth and load times
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 from app.api import auth
 

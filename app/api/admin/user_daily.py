@@ -70,6 +70,28 @@ def get_daily_metrics(
 
     return query.order_by(UserDailyMetrics.metric_date.desc()).all()
 
+@router.post("/batch", response_model=List[UserDailyMetricsResponse])
+def get_daily_metrics_batch(
+    project_ids: List[UUID],
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    db: Session = Depends(get_db),
+):
+    """
+    Batch endpoint to fetch metrics for multiple projects at once.
+    This reduces N+1 query problems and improves performance significantly.
+    """
+    query = db.query(UserDailyMetrics).filter(
+        UserDailyMetrics.project_id.in_(project_ids)
+    )
+
+    if start_date:
+        query = query.filter(UserDailyMetrics.metric_date >= start_date)
+    if end_date:
+        query = query.filter(UserDailyMetrics.metric_date <= end_date)
+
+    return query.order_by(UserDailyMetrics.metric_date.desc()).all()
+
 from app.services.user_project_history_service import (
     sync_user_project_history,
 )
