@@ -95,6 +95,12 @@ ON history(clock_in_at DESC);
 CREATE INDEX IF NOT EXISTS idx_history_sheet_date 
 ON history(sheet_date DESC);
 
+-- Partial index for "current session" / active clock-in lookup (clock_out_at IS NULL)
+-- Used by: GET /time/current, GET /time/home, clock-in validation
+CREATE INDEX IF NOT EXISTS idx_history_user_active_session 
+ON history(user_id) 
+WHERE clock_out_at IS NULL;
+
 -- ============================================================================
 -- USERS TABLE INDEXES
 -- ============================================================================

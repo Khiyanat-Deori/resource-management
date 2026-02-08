@@ -8,7 +8,7 @@ from app.db.session import SessionLocal
 from app.models.history import TimeHistory
 from app.models.project import Project
 from app.models.attendance_daily import AttendanceDaily
-from app.schemas.history import TimeHistoryResponse, ClockInRequest, ClockOutRequest
+from app.schemas.history import TimeHistoryResponse, ClockInRequest, ClockOutRequest, HomeTimeResponse
 from app.core.dependencies import get_current_user
 from app.models.user import User
 
@@ -154,6 +154,8 @@ def clock_out(
     
     db.commit()
     db.refresh(active_session)
+    if active_session.project:
+        active_session.project_name = active_session.project.name
     return active_session
 
 # --- 3. GET HISTORY ---
@@ -261,3 +263,42 @@ def get_current_active_session(
         return active_session
     
     return None
+
+
+# --- 6. GET HOME DATA (current session + today's sessions in one call) ---
+@router.get("/home", response_model=HomeTimeResponse)
+def get_home_time_data(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Returns current active session (if any) and today's sessions in one request.
+    Reduces round-trips for the Home page after clock in/out.
+    """
+    today = today_ist()
+    # 1. Active session (clock_out_at IS NULL)
+    active_session = db.query(TimeHistory).filter(
+        TimeHistory.user_id == current_user.id,
+        TimeHistory.clock_out_at == None
+    ).first()
+    if active_session and active_session.project:
+        active_session.project_name = active_session.project.name
+
+    # 2. Today's sessions (single query)
+    today_sessions = (
+        db.query(TimeHistory)
+        .filter(
+            TimeHistory.user_id == current_user.id,
+            TimeHistory.sheet_date == today,
+        )
+        .order_by(TimeHistory.clock_in_at.desc())
+        .all()
+    )
+    for r in today_sessions:
+        if r.project:
+            r.project_name = r.project.name
+
+    return HomeTimeResponse(
+        current_session=active_session,
+        today_sessions=today_sessions,
+    )

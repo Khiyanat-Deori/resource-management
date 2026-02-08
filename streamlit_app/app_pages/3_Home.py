@@ -97,13 +97,9 @@ def _cached_projects(token: str):
 
 
 @st.cache_data(ttl=15, show_spinner=False)
-def _cached_today_sessions(token: str, start_date: str, end_date: str):
-    return api_request(
-        "GET",
-        "/time/history",
-        token=token,
-        params={"start_date": start_date, "end_date": end_date},
-    ) or []
+def _cached_home_data(token: str, home_data_version: int):
+    """Single call for current session + today's sessions. Version bump after clock in/out refreshes data."""
+    return api_request("GET", "/time/home", token=token) or {}
 
 # ---------------------------------------------------------
 # HELPERS: TIME DISPLAY
@@ -188,7 +184,11 @@ st.divider()
 
 
 # --- 2. CHECK STATUS (Persistence) ---
-current_session = authenticated_request("GET", "/time/current")
+# Single /time/home call for current session + today's sessions (faster than two separate calls)
+st.session_state.setdefault("home_data_version", 0)
+token = st.session_state.get("token")
+home_data = _cached_home_data(token, st.session_state["home_data_version"]) if token else {}
+current_session = home_data.get("current_session") if home_data else None
 
 # --- 3. MAIN DASHBOARD LAYOUT ---
 with st.container(border=True):
@@ -309,18 +309,14 @@ with st.container(border=True):
                         "clock_in_at": clock_in_at,
                     })
                     if resp:
-                        st.cache_data.clear()
+                        st.session_state["home_data_version"] = st.session_state.get("home_data_version", 0) + 1
                         st.rerun()
                 else:
                     st.warning("Please select a project first.")
 
 # --- 3B. TODAY'S CLOCK IN / OUT DETAILS ---
 st.subheader("Today's Sessions")
-today_str = today_ist().isoformat()
-token = st.session_state.get("token")
-today_sessions = (
-    _cached_today_sessions(token, today_str, today_str) if token else []
-)
+today_sessions = home_data.get("today_sessions", []) if home_data else []
 
 if not today_sessions:
     st.info("No clock-in / clock-out sessions found for today.")
@@ -384,7 +380,7 @@ def clock_out_dialog():
             if resp:
                 st.success("Saved. Great work today.")
                 st.session_state['show_clockout_popup'] = False
-                st.cache_data.clear()
+                st.session_state["home_data_version"] = st.session_state.get("home_data_version", 0) + 1
                 st.rerun()
 
     with c_cancel:
