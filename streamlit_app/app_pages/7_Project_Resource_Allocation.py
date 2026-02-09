@@ -136,6 +136,7 @@ WORK_ROLE_OPTIONS = [
     "Super Quality Check",
     "Proctoring",
     "Operations",
+    "Training",
 ]
 
 # ---------------------------------------------------------
