@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, Query, HTTPException, status
-from sqlalchemy import func, case, and_, literal
+from sqlalchemy import func, case, and_, or_, literal
 from sqlalchemy.orm import Session, aliased
 from app.db.session import SessionLocal
 from app.models.shift import Shift
@@ -172,7 +172,7 @@ def search_with_filters(
     )
     
     # Query approved leave requests for today
-    # Leave types: SICK_LEAVE, FULL-DAY, HALF-DAY (using hyphens as per DB enum)
+    # Leave types: SICK_LEAVE, FULL-DAY, HALF-DAY, OTHER (any approved leave counts)
     leave_sq = (
         db.query(
             AttendanceRequest.user_id.label("user_id"),
@@ -182,7 +182,7 @@ def search_with_filters(
             AttendanceRequest.status == "APPROVED",
             AttendanceRequest.start_date <= today,
             AttendanceRequest.end_date >= today,
-            AttendanceRequest.request_type.in_(["SICK_LEAVE", "FULL-DAY", "HALF-DAY"])
+            AttendanceRequest.request_type.in_(["SICK_LEAVE", "FULL-DAY", "HALF-DAY", "OTHER"])
         )
         .group_by(AttendanceRequest.user_id)
         .subquery()
@@ -199,15 +199,25 @@ def search_with_filters(
     ).count()
     logger.info(f"[ATTENDANCE QUERY] Found {attendance_count} attendance records for date {today}")
 
-    # Compute today_status: prioritize attendance record, then check for approved leave
-    # If user has attendance record -> use that status
-    # Else if user has approved leave -> show "LEAVE" 
-    # Else -> "UNKNOWN"
+    # Compute today_status: prioritize approved leave, then attendance record
+    # PRIORITY:
+    # 1. If user has approved leave AND didn't clock in as PRESENT -> show "LEAVE"
+    # 2. If user has attendance record -> use that status  
+    # 3. Default to UNKNOWN
     today_status_expr = case(
+        # If user has approved leave AND (no attendance OR attendance is not PRESENT) -> LEAVE
+        (
+            and_(
+                leave_sq.c.leave_type.isnot(None),
+                or_(
+                    attendance_sq.c.status.is_(None),
+                    attendance_sq.c.status != "PRESENT"
+                )
+            ),
+            literal("LEAVE")
+        ),
         # If attendance record exists, use it
         (attendance_sq.c.status.isnot(None), attendance_sq.c.status),
-        # If no attendance but has approved leave, show LEAVE
-        (leave_sq.c.leave_type.isnot(None), literal("LEAVE")),
         # Default to UNKNOWN
         else_=literal("UNKNOWN")
     )

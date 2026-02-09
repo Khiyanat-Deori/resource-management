@@ -273,6 +273,7 @@ with st.container(border=True):
                 "Retro Quality Check",
                 "Super Quality Check",
                 "Operations",
+                "Training",
             ]
             for role in default_roles:
                 if role not in role_options:

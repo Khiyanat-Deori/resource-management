@@ -87,7 +87,7 @@ def project_resource_allocation(
     user_ids = [row[1].id for row in rows]  # row[1] is User
     
     # Query approved leave requests for these users on the target date
-    # Leave types: SICK_LEAVE, FULL-DAY, HALF-DAY (using hyphens as per DB enum)
+    # Leave types: SICK_LEAVE, FULL-DAY, HALF-DAY, OTHER (any approved leave counts)
     approved_leaves = {}
     if user_ids:
         leave_requests = (
@@ -97,7 +97,7 @@ def project_resource_allocation(
                 AttendanceRequest.status == "APPROVED",
                 AttendanceRequest.start_date <= target_date,
                 AttendanceRequest.end_date >= target_date,
-                AttendanceRequest.request_type.in_(["SICK_LEAVE", "FULL-DAY", "HALF-DAY"])
+                AttendanceRequest.request_type.in_(["SICK_LEAVE", "FULL-DAY", "HALF-DAY", "OTHER"])
             )
             .all()
         )
@@ -108,15 +108,24 @@ def project_resource_allocation(
 
     for pm, user, manager, attendance, shift in rows:
         # Determine attendance status
-        if attendance:
-            attendance_status = attendance.status
-        elif user.id in approved_leaves:
+        # PRIORITY: 
+        # 1. If user has approved leave for this date -> ON_LEAVE (unless they clocked in as PRESENT)
+        # 2. If user has attendance record -> use that status
+        # 3. Default to ABSENT
+        
+        if user.id in approved_leaves:
             # User has an approved leave for this date
-            leave_type = approved_leaves[user.id]
-            if leave_type == "HALF-DAY":
-                attendance_status = "HALF_DAY_LEAVE"
+            # But if they clocked in (PRESENT), show them as PRESENT (working on leave day)
+            if attendance and attendance.status == "PRESENT":
+                attendance_status = "PRESENT"
             else:
-                attendance_status = "ON_LEAVE"
+                leave_type = approved_leaves[user.id]
+                if leave_type == "HALF-DAY":
+                    attendance_status = "HALF_DAY_LEAVE"
+                else:
+                    attendance_status = "ON_LEAVE"
+        elif attendance:
+            attendance_status = attendance.status
         else:
             attendance_status = "ABSENT"
         
