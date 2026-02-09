@@ -30,6 +30,16 @@ if not role or role not in ["ADMIN", "MANAGER"]:
     st.error("Access denied. Admin or Manager role required.")
     st.stop()
 
+# Initialize dialog states if not present
+if "show_user_list" not in st.session_state:
+    st.session_state.show_user_list = None
+if "user_list_data" not in st.session_state:
+    st.session_state.user_list_data = []
+if "show_project_list" not in st.session_state:
+    st.session_state.show_project_list = None
+if "project_list_data" not in st.session_state:
+    st.session_state.project_list_data = None
+
 # Add CSS and JavaScript to style dialogs: 90vw width, centered, prevent double scroll
 st.markdown("""
 <style>
@@ -565,10 +575,23 @@ authenticated_request("GET", "/me/")
 # ---------------------------------------------------------
 # INITIALIZE POPUP STATES (Reset on page load)
 # ---------------------------------------------------------
-# Use a unique key to detect fresh page loads
-if "allocation_page_init" not in st.session_state:
-    st.session_state.allocation_page_init = True
-    # Reset all popup states on fresh page load
+# Use a script-run counter to detect fresh page loads vs reruns
+# On a fresh page load (navigation from another page), the counter won't exist or will be stale
+# On a rerun (button click), the counter will be current
+
+# Get current script run ID (changes on each full page load, not on rerun within same page)
+import streamlit.runtime.scriptrunner as scriptrunner
+try:
+    current_script_run = scriptrunner.get_script_run_ctx().session_id
+except:
+    current_script_run = "unknown"
+
+# Check if this is a fresh navigation to this page
+pra_last_run = st.session_state.get("_pra_last_script_run", None)
+pra_rerun_flag = st.session_state.get("_pra_rerun_flag", False)
+
+if not pra_rerun_flag:
+    # This is a fresh page load (not a rerun from button click) - reset dialog states
     st.session_state.show_user_list = None
     st.session_state.user_list_data = []
     st.session_state.show_project_list = None
@@ -577,6 +600,15 @@ if "allocation_page_init" not in st.session_state:
     st.session_state.allocation_popup_data = None
     if "selected_role" in st.session_state:
         st.session_state.selected_role = None
+
+# Reset the rerun flag for next fresh page load
+# This will be set to True by button clicks before calling st.rerun()
+st.session_state._pra_rerun_flag = False
+st.session_state._pra_last_script_run = current_script_run
+
+# Use a unique key to detect fresh page loads (first time session visits this page)
+if "allocation_page_init" not in st.session_state:
+    st.session_state.allocation_page_init = True
 
 # ---------------------------------------------------------
 # HEADER
@@ -946,6 +978,7 @@ with tab1:
             # Clear project list state to avoid conflicts
             st.session_state.show_project_list = None
             st.session_state.project_list_data = None
+            st.session_state._pra_rerun_flag = True
             st.rerun()
     
     with col2:
@@ -955,6 +988,7 @@ with tab1:
             # Clear project list state to avoid conflicts
             st.session_state.show_project_list = None
             st.session_state.project_list_data = None
+            st.session_state._pra_rerun_flag = True
             st.rerun()
     
     with col3:
@@ -964,6 +998,7 @@ with tab1:
             # Clear project list state to avoid conflicts
             st.session_state.show_project_list = None
             st.session_state.project_list_data = None
+            st.session_state._pra_rerun_flag = True
             st.rerun()
     
     with col4:
@@ -973,6 +1008,7 @@ with tab1:
             # Clear project list state to avoid conflicts
             st.session_state.show_project_list = None
             st.session_state.project_list_data = None
+            st.session_state._pra_rerun_flag = True
             st.rerun()
     
     with col5:
@@ -982,6 +1018,7 @@ with tab1:
             # Clear project list state to avoid conflicts
             st.session_state.show_project_list = None
             st.session_state.project_list_data = None
+            st.session_state._pra_rerun_flag = True
             st.rerun()
     
     with col6:
@@ -991,6 +1028,7 @@ with tab1:
             # Clear project list state to avoid conflicts
             st.session_state.show_project_list = None
             st.session_state.project_list_data = None
+            st.session_state._pra_rerun_flag = True
             st.rerun()
     
     with col7:
@@ -1000,6 +1038,7 @@ with tab1:
             # Clear project list state to avoid conflicts
             st.session_state.show_project_list = None
             st.session_state.project_list_data = None
+            st.session_state._pra_rerun_flag = True
             st.rerun()
     
     # Explanation text for attendance status logic
@@ -1011,8 +1050,7 @@ with tab1:
         st.warning(f"⚠️ **Mismatch:** Present ({present_count}) + Absent ({absent_count}) + Leave ({leave_count}) + Weekoff ({weekoff_count}) = {total_without_weekoff + weekoff_count} | Total Users: {total_users} (Difference: {total_users - (total_without_weekoff + weekoff_count)})")
     
     # Show exportable list popup when a button is clicked
-    # Only show dialog if explicitly triggered (not on page reload)
-    # Check if we have valid data and it wasn't just persisted from previous session
+    # Dialog states are reset when navigating from another page (see top of file)
     if (st.session_state.show_user_list and 
         st.session_state.user_list_data and 
         len(st.session_state.user_list_data) > 0):
@@ -1083,14 +1121,14 @@ with tab1:
                     else:
                         st.info("No users found.")
                 elif st.session_state.show_user_list == "leave":
-                    # For Leave users, show a clean table with View History buttons
+                    # For Leave users, show a clean table
                     df_users = pd.DataFrame(st.session_state.user_list_data)
                     if not df_users.empty:
                         # Select only the important columns for display
                         display_columns = ["name", "email", "work_role", "today_status"]
                         display_columns = [col for col in display_columns if col in df_users.columns]
                         
-                        # Show the dataframe first
+                        # Show the dataframe
                         df_display = df_users[display_columns].copy()
                         df_display = df_display.rename(columns={
                             "name": "Name",
@@ -1098,33 +1136,9 @@ with tab1:
                             "work_role": "Work Role",
                             "today_status": "Status"
                         })
-                        st.dataframe(df_display, use_container_width=True, height=300)
+                        st.dataframe(df_display, use_container_width=True, height=400)
                         
-                        st.markdown("---")
-                        st.markdown("**View Leave History:**")
-                        
-                        # Show View History buttons in a more compact layout (3 per row)
-                        users_list = st.session_state.user_list_data
-                        cols_per_row = 3
-                        for i in range(0, len(users_list), cols_per_row):
-                            row_users = users_list[i:i+cols_per_row]
-                            cols = st.columns(cols_per_row)
-                            for col_idx, user in enumerate(row_users):
-                                with cols[col_idx]:
-                                    user_id = str(user.get("id", "")).strip()
-                                    user_name = user.get("name", "Unknown")
-                                    if st.button(f"📋 {user_name}", key=f"view_history_{user_id}_{i+col_idx}", use_container_width=True):
-                                        # Store navigation parameters in session state
-                                        st.session_state.navigate_to_approvals = True
-                                        st.session_state.approval_tab = "history"
-                                        st.session_state.approval_user_id = user_id
-                                        st.session_state.approval_user_name = user_name
-                                        st.session_state.approval_date_from = selected_date.isoformat()
-                                        st.session_state.approval_date_to = selected_date.isoformat()
-                                        # Navigate to attendance approvals page
-                                        st.switch_page("app_pages/6_Attendance_Approvals.py")
-                        
-                        # Also show export option
+                        # Show export option
                         export_csv(f"{list_title.replace(' ', '_')}_{selected_date}.csv", st.session_state.user_list_data)
                     else:
                         st.info("No users found.")
@@ -1317,6 +1331,7 @@ with tab1:
                                 # Clear user list state to avoid conflicts
                                 st.session_state.show_user_list = None
                                 st.session_state.user_list_data = []
+                                st.session_state._pra_rerun_flag = True
                                 st.rerun()
                         with metric_col2:
                             if st.button(f"**Hours**\n{proj_data['total_hours']:.1f}", key=f"hours_{proj['id']}", use_container_width=True):
@@ -1325,6 +1340,7 @@ with tab1:
                                 # Clear user list state to avoid conflicts
                                 st.session_state.show_user_list = None
                                 st.session_state.user_list_data = []
+                                st.session_state._pra_rerun_flag = True
                                 st.rerun()
                         
                         # Role counts - standardized to show max 4 roles, rest in expander
@@ -1342,6 +1358,7 @@ with tab1:
                                 # Clear user list state to avoid conflicts
                                 st.session_state.show_user_list = None
                                 st.session_state.user_list_data = []
+                                st.session_state._pra_rerun_flag = True
                                 st.rerun()
                         
                         # Show remaining roles in expander if there are more than 4
@@ -1356,6 +1373,7 @@ with tab1:
                                         # Clear user list state to avoid conflicts
                                         st.session_state.show_user_list = None
                                         st.session_state.user_list_data = []
+                                        st.session_state._pra_rerun_flag = True
                                         st.rerun()
                         
                         # Add spacing to standardize height
@@ -1368,6 +1386,7 @@ with tab1:
                             # Clear user list state to avoid conflicts
                             st.session_state.show_user_list = None
                             st.session_state.user_list_data = []
+                            st.session_state._pra_rerun_flag = True
                             st.rerun()
     
     # Initialize project list state (already initialized at top level)
@@ -1377,7 +1396,7 @@ with tab1:
         st.session_state.project_list_data = None
     
     # Single dialog function to handle all project list types
-    # Only show dialog if explicitly triggered (not on page load)
+    # Dialog states are reset when navigating from another page (see top of file)
     if st.session_state.show_project_list and st.session_state.project_list_data:
         # Only show project list dialog if user list is not active
         if not st.session_state.show_user_list:
