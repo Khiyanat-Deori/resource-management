@@ -246,34 +246,53 @@ with tab1:
             axis=1,
         )
 
+        # Fetch all managers (ADMIN + MANAGER role) for the dropdown
+        all_managers = authenticated_request("GET", "/admin/users/project_managers") or []
+        manager_options = [f"{m['name']}" for m in all_managers]
+        manager_name_to_id = {m['name']: m['id'] for m in all_managers}
+        manager_id_to_name = {m['id']: m['name'] for m in all_managers}
+
         members_count = {}
-        pm_map = {}
+        owners_map = {}  # Maps project_id to list of owner names
+        owners_ids_map = {}  # Maps project_id to list of owner user_ids
 
         for p in projects_data:
+            # Get member count
             members = authenticated_request("GET", f"/admin/projects/{p['id']}/members") or []
             members_count[p["id"]] = len(members)
-            pm_list = [m["name"] for m in members if m["work_role"] in ["PM","APM"]]
-            pm_map[p["id"]] = ", ".join(pm_list)
+            
+            # Get project owners from project_owners table
+            owners = authenticated_request("GET", f"/admin/projects/{p['id']}/owners") or []
+            owner_names = [o.get("user_name", "Unknown") for o in owners]
+            owner_ids = [o.get("user_id") for o in owners]
+            owners_map[p["id"]] = owner_names
+            owners_ids_map[p["id"]] = owner_ids
 
         df["allocated_users"] = df["id"].map(members_count)
-        df["pm_apm"] = df["id"].map(pm_map)
+        df["pm_apm"] = df["id"].map(lambda x: owners_map.get(x, []))
 
         edit_df = df[['code','name','status','allocated_users','pm_apm','start_date','end_date','id']].copy()
         edit_df['start_date'] = pd.to_datetime(edit_df['start_date']).dt.date
         edit_df['end_date'] = pd.to_datetime(edit_df['end_date']).dt.date
 
+        # Convert pm_apm list to comma-separated string for display (read-only)
+        edit_df['pm_apm'] = edit_df['pm_apm'].apply(lambda x: ", ".join(x) if isinstance(x, list) else "")
+        
         edited_df = st.data_editor(
             edit_df,
             column_config={
                 "id": None,
                 "code": st.column_config.TextColumn("Code"),
                 "name": st.column_config.TextColumn("Name"),
-                "status": st.column_config.TextColumn("Status"),
-                "allocated_users": st.column_config.NumberColumn("Allocated Users"),
-                "pm_apm": st.column_config.TextColumn("PM / APM"),
                 "status": st.column_config.SelectboxColumn(
                     "Status",
                     options=["ACTIVE", "PAUSED", "COMPLETED"],
+                ),
+                "allocated_users": st.column_config.NumberColumn("Allocated Users", disabled=True),
+                "pm_apm": st.column_config.TextColumn(
+                    "PM / APM",
+                    help="Use the section below to assign PM/APM",
+                    disabled=True,  # Make it read-only
                 ),
                 "start_date": st.column_config.DateColumn("Start Date"),
                 "end_date": st.column_config.DateColumn("End Date")
@@ -282,8 +301,84 @@ with tab1:
             key="project_editor"
         )
 
+        # PM/APM Assignment Section (since ListColumn is read-only, we need a separate UI)
+        st.markdown("---")
+        st.markdown("### 👥 Assign PM / APM to Projects")
+        st.caption("Select a project and assign managers as owners")
+        
+        # Track previously selected project to detect changes
+        if "prev_pm_assign_project" not in st.session_state:
+            st.session_state.prev_pm_assign_project = None
+        
+        col_proj, col_managers = st.columns([1, 2])
+        
+        with col_proj:
+            project_options = {p["name"]: p["id"] for p in filtered_projects}
+            # Add a placeholder option for "Select a project"
+            project_names_list = ["-- Select a Project --"] + list(project_options.keys())
+            
+            selected_project_name = st.selectbox(
+                "Select Project",
+                options=project_names_list,
+                index=0,  # Default to placeholder
+                key="pm_assign_project"
+            )
+            
+            # Get project ID (None if placeholder selected)
+            selected_project_id = project_options.get(selected_project_name) if selected_project_name != "-- Select a Project --" else None
+        
+        with col_managers:
+            if selected_project_id:
+                # Check if project selection changed - if so, we need to update the multiselect
+                project_changed = st.session_state.prev_pm_assign_project != selected_project_id
+                
+                # Get current owners for this project
+                current_owner_ids = owners_ids_map.get(selected_project_id, [])
+                current_owner_names = [manager_id_to_name.get(oid, "") for oid in current_owner_ids if oid in manager_id_to_name]
+                
+                # Use a dynamic key that changes when project changes to force multiselect to reset
+                multiselect_key = f"pm_assign_managers_{selected_project_id}"
+                
+                selected_managers = st.multiselect(
+                    "Select PM / APM",
+                    options=manager_options,
+                    default=current_owner_names,
+                    key=multiselect_key,
+                    help="Select one or more managers to assign as project owners"
+                )
+                
+                # Update the previous project tracker
+                st.session_state.prev_pm_assign_project = selected_project_id
+            else:
+                st.info("👈 Please select a project first")
+                selected_managers = []
+        
+        col_btn, col_spacer = st.columns([1, 3])
+        with col_btn:
+            # Only show save button if a project is selected
+            if selected_project_id:
+                if st.button("💾 Save PM/APM Assignment", type="primary", use_container_width=True):
+                    # Convert selected names to user IDs
+                    selected_user_ids = [manager_name_to_id[name] for name in selected_managers if name in manager_name_to_id]
+                    
+                    # Call bulk update API
+                    response = authenticated_request(
+                        "PUT",
+                        f"/admin/projects/{selected_project_id}/owners/bulk",
+                        data={"user_ids": selected_user_ids, "work_role": "PM"}
+                    )
+                    
+                    if response:
+                        st.success(f"✅ PM/APM updated for {selected_project_name}! Added: {response.get('added', 0)}, Removed: {response.get('removed', 0)}")
+                        st.toast("PM/APM assignment saved")
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error("❌ Failed to update PM/APM assignment")
 
-        if st.button("💾 Save Changes", type="primary"):
+        st.markdown("---")
+
+        if st.button("💾 Save Project Changes", type="primary"):
             changes = st.session_state["project_editor"].get("edited_rows", {})
 
             for row_idx, updates in changes.items():

@@ -125,6 +125,38 @@ def list_rep_managers(
     for r in reporting_managers
     ]
 
+
+@router.get("/project_managers")
+def list_project_managers(
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user)
+):
+    """
+    Get all users with role ADMIN or MANAGER.
+    Used for project owner assignment dropdown.
+    """
+    managers = (
+        db.query(
+            User.id,
+            User.name,
+            User.email,
+            User.role
+        )
+        .filter(User.role.in_(["ADMIN", "MANAGER"]))
+        .filter(User.is_active == True)
+        .order_by(User.name)
+        .all()
+    )
+
+    return [{
+        "id": str(m.id),
+        "name": m.name,
+        "email": m.email,
+        "role": m.role.value if hasattr(m.role, 'value') else str(m.role)
+    }
+    for m in managers
+    ]
+
 @router.post("/users_with_filter")
 def search_with_filters(
     payload: UsersAdminSearchFilters,
