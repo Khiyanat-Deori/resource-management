@@ -17,10 +17,11 @@ from app.models.project_daily_metrics import ProjectDailyMetrics
 from app.models.user_project_history import UserProjectHistory
 from app.models.project_members import ProjectMember
 from app.models.user_quality import UserQuality, QualityRating
+from app.models.attendance_daily import AttendanceDaily
 from app.models.user import User
 from sqlalchemy import func
 from uuid import UUID
-from app.utils.timezone import today_ist
+from app.utils.timezone import today_ist, now_ist
 
 # Configure logger
 logging.basicConfig(
@@ -45,6 +46,51 @@ def log_and_print(message, level='info'):
 
 # Global scheduler instance
 scheduler = BackgroundScheduler()
+MAX_SESSION_DURATION = timedelta(hours=14)
+AUTO_CLOCK_OUT_CHECK_INTERVAL_MINUTES = 10
+
+
+def auto_clock_out_overdue_sessions():
+    """Auto clock out active sessions that exceed the 14-hour max session duration."""
+    db: Session = SessionLocal()
+    try:
+        cutoff = now_ist() - MAX_SESSION_DURATION
+        overdue_sessions = db.query(TimeHistory).filter(
+            TimeHistory.clock_out_at.is_(None),
+            TimeHistory.clock_in_at <= cutoff
+        ).all()
+
+        if not overdue_sessions:
+            return
+
+        forced_minutes = round(MAX_SESSION_DURATION.total_seconds() / 60, 2)
+        for session in overdue_sessions:
+            forced_clock_out_at = session.clock_in_at + MAX_SESSION_DURATION
+            session.clock_out_at = forced_clock_out_at
+            session.minutes_worked = forced_minutes
+
+            auto_note = "Auto clocked-out after reaching max 14-hour session limit."
+            session.notes = f"{session.notes}\n{auto_note}" if session.notes else auto_note
+
+            attendance = db.query(AttendanceDaily).filter(
+                AttendanceDaily.user_id == session.user_id,
+                AttendanceDaily.project_id == session.project_id,
+                AttendanceDaily.attendance_date == session.sheet_date
+            ).first()
+            if attendance:
+                attendance.last_clock_out_at = forced_clock_out_at
+                attendance.minutes_worked = forced_minutes
+
+        db.commit()
+        log_and_print(
+            f"Auto clocked out {len(overdue_sessions)} session(s) exceeding 14 hours"
+        )
+    except Exception as e:
+        db.rollback()
+        log_and_print(f"Error during auto clock-out: {str(e)}", level='error')
+        logger.error(f"Error during auto clock-out: {str(e)}", exc_info=True)
+    finally:
+        db.close()
 
 
 def calculate_daily_productivity_for_project(project_id: UUID, calculation_date: date, db: Session):
@@ -384,12 +430,22 @@ def calculate_all_projects_automatically():
 
 
 def start_scheduler():
-    """Start the background scheduler to run calculations every 6 hours"""
+    """Start the background scheduler for periodic jobs."""
     if scheduler.running:
         logger.warning("Scheduler is already running")
         return
-    
-    # Schedule the job to run every 6 hours
+
+    # Schedule auto clock-out checks every 10 minutes.
+    scheduler.add_job(
+        func=auto_clock_out_overdue_sessions,
+        trigger=IntervalTrigger(minutes=AUTO_CLOCK_OUT_CHECK_INTERVAL_MINUTES),
+        id='auto_clock_out_overdue_sessions',
+        name='Auto Clock Out Overdue Sessions',
+        replace_existing=True,
+        max_instances=1
+    )
+
+    # Schedule metrics calculation every 6 hours.
     scheduler.add_job(
         func=calculate_all_projects_automatically,
         trigger=IntervalTrigger(hours=6),
@@ -401,14 +457,16 @@ def start_scheduler():
     
     scheduler.start()
     log_and_print("✅ Scheduler started - Automatic calculations will run every 6 hours")
-    
-    # Run immediately on startup to catch up on any missed calculations
-    log_and_print("Running initial calculation on startup...")
+    log_and_print("✅ Auto clock-out checks will run every 10 minutes")
+
+    # Run once on startup to catch up on overdue sessions and missed calculations.
+    log_and_print("Running initial scheduler jobs on startup...")
     try:
+        auto_clock_out_overdue_sessions()
         calculate_all_projects_automatically()
     except Exception as e:
-        log_and_print(f"Error in initial calculation: {str(e)}", level='error')
-        logger.error(f"Error in initial calculation: {str(e)}", exc_info=True)
+        log_and_print(f"Error in initial scheduler run: {str(e)}", level='error')
+        logger.error(f"Error in initial scheduler run: {str(e)}", exc_info=True)
 
 
 def stop_scheduler():

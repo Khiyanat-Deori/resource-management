@@ -428,6 +428,7 @@ def get_users_fallback():
                 "work_role": user.get("work_role", ""),
                 "is_active": user.get("is_active", True),
                 "allocated_projects": 0,  # We don't have this from simple endpoint
+                "is_not_allocated": False,
                 "today_status": "ABSENT",  # Default to ABSENT if no attendance data
                 "shift_id": user.get("default_shift_id"),
                 "shift_name": None,
@@ -686,6 +687,7 @@ with tab1:
                         "work_role": "",
                         "is_active": True,
                         "allocated_projects": 0,
+                        "is_not_allocated": False,
                         "today_status": "ABSENT",
                         "shift_id": None,
                         "shift_name": None,
@@ -746,8 +748,9 @@ with tab1:
     print(f"[DEBUG] Final total_users count: {total_users}")
     print(f"[DEBUG] Sample user data: {user_role_users[0] if user_role_users else 'No users'}")
     
-    allocated_users = [u for u in user_role_users if u.get("allocated_projects", 0) > 0]
-    not_allocated_users = [u for u in user_role_users if u.get("allocated_projects", 0) == 0]
+    # "Not Allocated" is driven by active clock-in on NA project from backend.
+    not_allocated_users = [u for u in user_role_users if bool(u.get("is_not_allocated", False))]
+    allocated_users = [u for u in user_role_users if not bool(u.get("is_not_allocated", False))]
         # Fetch weekoffs for users to identify weekoff users
     # Get today's weekday name (e.g., "MONDAY", "SUNDAY")
     today_weekday = selected_date.strftime("%A").upper()

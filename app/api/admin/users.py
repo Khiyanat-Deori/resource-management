@@ -7,6 +7,7 @@ from app.models.user import User, UserRole
 from app.models.project_members import ProjectMember
 from app.models.attendance_daily import AttendanceDaily
 from app.models.attendance_request import AttendanceRequest
+from app.models.history import TimeHistory
 from app.core.dependencies import get_current_user
 from app.schemas.user import UserBatchUpdateRequest, UserCreate, UserResponse, UserUpdate, UserQualityUpdate, UserSystemUpdate, UsersAdminSearchFilters, UserBatchUpdate
 from typing import List, Optional
@@ -21,6 +22,7 @@ router = APIRouter(
     prefix="/admin/users",
     tags=["Admin Users"],
 )
+NOT_ALLOCATED_PROJECT_ID = UUID("cf261b87-41a6-4091-86c2-c4884f74a25c")
 
 
 def get_db():
@@ -187,6 +189,18 @@ def search_with_filters(
         .group_by(AttendanceRequest.user_id)
         .subquery()
     )
+
+    # Mark user as not allocated only when they currently have an active session
+    # (clock_out_at is NULL) on the dedicated "Not allocated" project.
+    active_not_allocated_sq = (
+        db.query(TimeHistory.user_id.label("user_id"))
+        .filter(
+            TimeHistory.project_id == NOT_ALLOCATED_PROJECT_ID,
+            TimeHistory.clock_out_at.is_(None),
+        )
+        .distinct()
+        .subquery()
+    )
     
     # Debug: Log the date being used for the query
     import logging
@@ -241,12 +255,17 @@ def search_with_filters(
             func.coalesce(project_count_sq.c.project_count, 0).label(
                 "allocated_projects"
             ),
+            case(
+                (active_not_allocated_sq.c.user_id.isnot(None), True),
+                else_=False,
+            ).label("is_not_allocated"),
             today_status_expr.label("today_status"),
         )
         .outerjoin(Manager, Manager.id == User.rpm_user_id)
         .outerjoin(project_count_sq, project_count_sq.c.user_id == User.id)
         .outerjoin(attendance_sq, attendance_sq.c.user_id == User.id)
         .outerjoin(leave_sq, leave_sq.c.user_id == User.id)
+        .outerjoin(active_not_allocated_sq, active_not_allocated_sq.c.user_id == User.id)
         .outerjoin(Shift, Shift.id == User.default_shift_id)
     ) 
 
@@ -298,6 +317,7 @@ def search_with_filters(
             "shift_name": r.shift_name,
             "rpm_user_id": r.reporting_manager_id,
             "allocated_projects": r.allocated_projects,
+            "is_not_allocated": r.is_not_allocated,
             "today_status": r.today_status,
         }
         for r in results

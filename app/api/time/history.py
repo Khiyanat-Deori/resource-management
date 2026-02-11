@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Query, HTTPException, status
 from sqlalchemy.orm import Session
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import List, Optional
 import uuid
 from uuid import UUID
@@ -16,6 +16,7 @@ from app.schemas.history import ApprovalRequest
 from app.utils.timezone import now_ist, today_ist
 
 router = APIRouter(prefix="/time", tags=["Time Tracking"])
+MAX_SESSION_DURATION = timedelta(hours=14)
 
 def get_db():
     db = SessionLocal()
@@ -130,8 +131,8 @@ def clock_out(
             detail="No active session found. You must clock in first."
         )
 
-    # Update the session
-    clock_out_at = now_ist()
+    # Cap manual clock-out time to 14 hours from clock in.
+    clock_out_at = min(now_ist(), active_session.clock_in_at + MAX_SESSION_DURATION)
     active_session.clock_out_at = clock_out_at
     active_session.tasks_completed = payload.tasks_completed
     active_session.notes = payload.notes
@@ -140,12 +141,12 @@ def clock_out(
     minutes_worked = (clock_out_at - active_session.clock_in_at).total_seconds() / 60
     active_session.minutes_worked = round(minutes_worked, 2)
     
-    # Update AttendanceDaily record with clock out time
-    today = today_ist()
+    # Update AttendanceDaily record with clock out time.
+    # Use session sheet_date instead of today in case of cross-date session handling.
     existing_attendance = db.query(AttendanceDaily).filter(
         AttendanceDaily.user_id == current_user.id,
         AttendanceDaily.project_id == active_session.project_id,
-        AttendanceDaily.attendance_date == today
+        AttendanceDaily.attendance_date == active_session.sheet_date
     ).first()
     
     if existing_attendance:

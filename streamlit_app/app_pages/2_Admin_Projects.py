@@ -520,6 +520,105 @@ with tab2:
             
         else:
             st.info("No members assigned to this project yet. Use the 'Add Member' form above to assign team members.")
+        
+        # Weekoff Update Section
+        st.markdown("---")
+        st.subheader("📅 Update Weekoff for Users")
+        st.caption("Select a user and their weekoff days to update")
+        
+        # Get all users for the dropdown
+        all_users_list = authenticated_request("GET", "/admin/users/", params={"limit": 1000}) or []
+        
+        if all_users_list:
+            # Create user options for dropdown (name - email format)
+            user_options = {}
+            for user in all_users_list:
+                if isinstance(user, dict):
+                    user_id = str(user.get("id", "")).strip()
+                    user_name = user.get("name", "Unknown")
+                    user_email = user.get("email", "")
+                    if user_id and user_id != "None":
+                        display_name = f"{user_name} ({user_email})" if user_email else user_name
+                        user_options[display_name] = {
+                            "id": user_id,
+                            "name": user_name,
+                            "email": user_email,
+                            "current_weekoffs": user.get("weekoffs", [])
+                        }
+            
+            if user_options:
+                col_user, col_weekoff = st.columns([1, 1])
+                
+                with col_user:
+                    selected_user_display = st.selectbox(
+                        "Select User",
+                        options=list(user_options.keys()),
+                        key="weekoff_user_select"
+                    )
+                
+                if selected_user_display:
+                    selected_user = user_options[selected_user_display]
+                    current_weekoffs = selected_user.get("current_weekoffs", [])
+                    
+                    # Convert current weekoffs to list of strings
+                    current_weekoff_strings = []
+                    if current_weekoffs:
+                        for w in current_weekoffs:
+                            if isinstance(w, str):
+                                current_weekoff_strings.append(w.upper().strip())
+                            elif isinstance(w, dict):
+                                weekoff_val = (w.get("value") or w.get("name") or "").upper().strip()
+                                if weekoff_val:
+                                    current_weekoff_strings.append(weekoff_val)
+                            elif hasattr(w, 'value'):
+                                current_weekoff_strings.append(str(w.value).upper().strip())
+                            elif hasattr(w, '__str__'):
+                                current_weekoff_strings.append(str(w).upper().strip())
+                    
+                    # Weekoff day options
+                    weekoff_days = ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"]
+                    
+                    with col_weekoff:
+                        selected_weekoffs = st.multiselect(
+                            "Select Weekoff Days",
+                            options=weekoff_days,
+                            default=current_weekoff_strings,
+                            key="weekoff_days_select"
+                        )
+                    
+                    # Show current weekoffs
+                    if current_weekoff_strings:
+                        st.info(f"📌 Current weekoffs: {', '.join(current_weekoff_strings)}")
+                    
+                    # Update button
+                    col_btn1, col_btn2 = st.columns([1, 4])
+                    with col_btn1:
+                        if st.button("🔄 Update Weekoff", type="primary", use_container_width=True, key="update_weekoff_btn"):
+                            if selected_weekoffs:
+                                # Prepare update payload
+                                update_payload = {
+                                    "weekoffs": selected_weekoffs
+                                }
+                                
+                                # Make API call to update user
+                                user_id = selected_user["id"]
+                                response = authenticated_request(
+                                    "PUT",
+                                    f"/admin/users/{user_id}",
+                                    data=update_payload
+                                )
+                                
+                                if response:
+                                    st.success(f"✅ Successfully updated weekoff for {selected_user['name']}!")
+                                    st.toast("Weekoff updated")
+                                    time.sleep(1)
+                                    st.rerun()
+                                else:
+                                    st.error("❌ Failed to update weekoff. Please check the error message above.")
+                            else:
+                                st.warning("⚠️ Please select at least one weekoff day.")
+        else:
+            st.info("No users available to update weekoff.")
 
 # ==========================================
 # TAB 3: QUALITY ASSESSMENT
