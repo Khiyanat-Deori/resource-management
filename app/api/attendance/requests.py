@@ -18,7 +18,8 @@ from app.models.project_members import ProjectMember
 from app.models.project_owners import ProjectOwner
 from app.models.project import Project
 from app.services.notification_service import send_attendance_request_created_email
-from app.utils.timezone import now_ist
+from app.utils.timezone import now_ist, today_ist
+from app.models.history import TimeHistory
 
 
 router = APIRouter(
@@ -51,29 +52,76 @@ def create_request(
     db.commit()
     db.refresh(req)
 
-    # Notify project owners + RPM about the new request
+    # -------------------------------------------------------------------------
+    # NOTIFY PROJECT OWNERS (PM) + RPM ABOUT THE NEW REQUEST
+    # -------------------------------------------------------------------------
+    # Determine which project(s) to use for manager notifications (in order):
+    # 1. If user is clocked in today and has NOT clocked out → use that project.
+    # 2. If user did not log in today → use the last project they logged into.
+    # 3. Fallback: use the project selected on the leave request.
+    # 4. If still no project (e.g. user de-allocated from all projects) → use last
+    #    project the user was allocated to ("last PM"); mail goes to that PM.
+    # 5. If user was never allocated to any project → only RPM receives the mail.
+    #    (rpm_user_id should be non-null for all users to guarantee a recipient.)
+    # -------------------------------------------------------------------------
     recipients = {}
 
+    # Add RPM (reporting manager) to recipients if set on the user.
     if user.rpm_user_id:
         rpm_user = db.query(User).filter(User.id == user.rpm_user_id).first()
         if rpm_user and rpm_user.email and rpm_user.id != user.id:
             recipients[rpm_user.id] = rpm_user
 
-    member_projects = db.query(ProjectMember.project_id).filter(
-        ProjectMember.user_id == user.id,
-        ProjectMember.is_active.is_(True),
-        ProjectMember.assigned_from <= req.start_date,
-        or_(
-            ProjectMember.assigned_to.is_(None),
-            ProjectMember.assigned_to >= req.start_date,
-        ),
-    ).all()
-    project_ids = [pid for (pid,) in member_projects]
+    today = today_ist()
+
+    # Check for an active session today: user clocked in and has not clocked out.
+    active_session_today = db.query(TimeHistory).filter(
+        TimeHistory.user_id == user.id,
+        TimeHistory.clock_out_at.is_(None),
+        TimeHistory.sheet_date == today,
+    ).first()
+
+    if active_session_today:
+        # User is currently clocked in → notify owners of this project only.
+        project_ids = [active_session_today.project_id]
+    else:
+        # User did not log in today (or already clocked out) → use last project they logged into.
+        last_session_before_today = (
+            db.query(TimeHistory)
+            .filter(
+                TimeHistory.user_id == user.id,
+                TimeHistory.sheet_date < today,
+            )
+            .order_by(TimeHistory.sheet_date.desc(), TimeHistory.clock_in_at.desc())
+            .first()
+        )
+        if last_session_before_today:
+            project_ids = [last_session_before_today.project_id]
+        else:
+            # No clock-in history (e.g. new user) → fallback to project selected on the request.
+            project_ids = [req.project_id] if req.project_id else []
+
+    # If still no project (e.g. user de-allocated from all, no clock-in, no request project),
+    # use the last project the user was allocated to so mail goes to "last PM".
+    if not project_ids:
+        last_allocation = (
+            db.query(ProjectMember.project_id)
+            .filter(ProjectMember.user_id == user.id)
+            .order_by(ProjectMember.updated_at.desc())
+            .first()
+        )
+        if last_allocation:
+            (pid,) = last_allocation
+            project_ids = [pid]
+    # If project_ids still empty → user was never allocated; only RPM receives (already in recipients).
+
+    # Build project names string for the email body.
     project_names = None
     if project_ids:
         project_names_list = db.query(Project.name).filter(Project.id.in_(project_ids)).all()
         project_names = ", ".join(sorted({name for (name,) in project_names_list if name}))
 
+    # Add all project owners of the determined project(s) to recipients.
     if project_ids:
         owners = db.query(User).join(
             ProjectOwner, ProjectOwner.user_id == User.id

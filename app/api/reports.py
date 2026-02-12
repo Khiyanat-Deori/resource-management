@@ -102,10 +102,30 @@ def export_project_daily_report(
 # ------------------------------------------------------------------
 @router.get("/role-drilldown")
 def export_role_drilldown(
-    report_date: date,
+    report_date: Optional[date] = None,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
     project_id: Optional[UUID] = None,
     db: Session = Depends(get_db)
 ):
+    from datetime import timedelta
+    from app.utils.timezone import today_ist
+    
+    # Support both single date (backward compatible) and date range
+    if start_date and end_date:
+        # Date range mode
+        date_list = []
+        current = start_date
+        while current <= end_date:
+            date_list.append(current)
+            current += timedelta(days=1)
+    elif report_date:
+        # Single date mode (backward compatible)
+        date_list = [report_date]
+    else:
+        # Default to today
+        date_list = [today_ist()]
+    
     data = []
     
     if project_id:
@@ -119,51 +139,51 @@ def export_role_drilldown(
             ProjectMember.is_active == True
         ).join(User, ProjectMember.user_id == User.id).all()
 
-        for m in members:
-            att = db.query(AttendanceDaily).filter(
-                AttendanceDaily.user_id == m.user_id,
-                AttendanceDaily.attendance_date == report_date
-            ).first()
+        for current_date in date_list:
+            for m in members:
+                att = db.query(AttendanceDaily).filter(
+                    AttendanceDaily.user_id == m.user_id,
+                    AttendanceDaily.attendance_date == current_date
+                ).first()
 
-            minutes = att.minutes_worked if att else 0
-            hours = round(minutes / 60, 2) if minutes else 0
+                minutes = att.minutes_worked if att else 0
+                hours = round(minutes / 60, 2) if minutes else 0
 
-            # Get tasks completed for this user on this date for this project
-            metrics = db.query(UserDailyMetrics).filter(
-                UserDailyMetrics.user_id == m.user_id,
-                UserDailyMetrics.project_id == project_id,
-                UserDailyMetrics.metric_date == report_date
-            ).first()
-            
-            tasks_completed = metrics.tasks_completed if metrics else 0
+                # Get tasks completed for this user on this date for this project
+                metrics = db.query(UserDailyMetrics).filter(
+                    UserDailyMetrics.user_id == m.user_id,
+                    UserDailyMetrics.project_id == project_id,
+                    UserDailyMetrics.metric_date == current_date
+                ).first()
+                
+                tasks_completed = metrics.tasks_completed if metrics else 0
 
-            # Check if date is user's weekoff
-            attendance_status = "ABSENT"
-            if att:
-                attendance_status = att.status
-            else:
-                # Check if it's a weekoff day (supports multiple weekoffs)
-                user = m.user
-                if user.weekoffs:
-                    weekday_name = report_date.strftime("%A").upper()  # "SUNDAY", "MONDAY", etc.
-                    # Check if weekday matches any of the user's weekoffs (array of enums)
-                    weekoff_values = [w.value if hasattr(w, 'value') else str(w) for w in user.weekoffs]
-                    if weekday_name in weekoff_values:
-                        attendance_status = "WEEKOFF"
+                # Check if date is user's weekoff
+                attendance_status = "ABSENT"
+                if att:
+                    attendance_status = att.status
+                else:
+                    # Check if it's a weekoff day (supports multiple weekoffs)
+                    user = m.user
+                    if user.weekoffs:
+                        weekday_name = current_date.strftime("%A").upper()
+                        weekoff_values = [w.value if hasattr(w, 'value') else str(w) for w in user.weekoffs]
+                        if weekday_name in weekoff_values:
+                            attendance_status = "WEEKOFF"
 
-            row = {
-                "project_code": project.code,
-                "project_name": project.name,
-                "date": report_date,
-                "role": m.work_role,
-                "user_name": m.user.name,
-                "email": m.user.email,
-                "attendance_status": attendance_status,
-                "tasks_completed": tasks_completed,
-                "minutes_worked": minutes,
-                "hours_worked": hours
-            }
-            data.append(row)
+                row = {
+                    "project_code": project.code,
+                    "project_name": project.name,
+                    "date": current_date,
+                    "role": m.work_role,
+                    "user_name": m.user.name,
+                    "email": m.user.email,
+                    "attendance_status": attendance_status,
+                    "tasks_completed": tasks_completed,
+                    "minutes_worked": minutes,
+                    "hours_worked": hours
+                }
+                data.append(row)
     else:
         # All projects mode
         all_projects = db.query(Project).all()
@@ -174,66 +194,73 @@ def export_role_drilldown(
             ProjectMember.is_active == True
         ).join(User, ProjectMember.user_id == User.id).all()
 
-        # Process each member
-        for m in all_members:
-            project = project_map.get(m.project_id)
-            if not project:
-                continue
+        for current_date in date_list:
+            for m in all_members:
+                project = project_map.get(m.project_id)
+                if not project:
+                    continue
+                    
+                att = db.query(AttendanceDaily).filter(
+                    AttendanceDaily.user_id == m.user_id,
+                    AttendanceDaily.attendance_date == current_date
+                ).first()
+
+                minutes = att.minutes_worked if att else 0
+                hours = round(minutes / 60, 2) if minutes else 0
+
+                # Get tasks completed for this user on this date for this project
+                metrics = db.query(UserDailyMetrics).filter(
+                    UserDailyMetrics.user_id == m.user_id,
+                    UserDailyMetrics.project_id == m.project_id,
+                    UserDailyMetrics.metric_date == current_date
+                ).first()
                 
-            att = db.query(AttendanceDaily).filter(
-                AttendanceDaily.user_id == m.user_id,
-                AttendanceDaily.attendance_date == report_date
-            ).first()
+                tasks_completed = metrics.tasks_completed if metrics else 0
 
-            minutes = att.minutes_worked if att else 0
-            hours = round(minutes / 60, 2) if minutes else 0
+                # Check if date is user's weekoff
+                attendance_status = "ABSENT"
+                if att:
+                    attendance_status = att.status
+                else:
+                    # Check if it's a weekoff day (supports multiple weekoffs)
+                    user = m.user
+                    if user.weekoffs:
+                        weekday_name = current_date.strftime("%A").upper()
+                        weekoff_values = [w.value if hasattr(w, 'value') else str(w) for w in user.weekoffs]
+                        if weekday_name in weekoff_values:
+                            attendance_status = "WEEKOFF"
 
-            # Get tasks completed for this user on this date for this project
-            metrics = db.query(UserDailyMetrics).filter(
-                UserDailyMetrics.user_id == m.user_id,
-                UserDailyMetrics.project_id == m.project_id,
-                UserDailyMetrics.metric_date == report_date
-            ).first()
-            
-            tasks_completed = metrics.tasks_completed if metrics else 0
-
-            # Check if date is user's weekoff
-            attendance_status = "ABSENT"
-            if att:
-                attendance_status = att.status
-            else:
-                # Check if it's a weekoff day (supports multiple weekoffs)
-                user = m.user
-                if user.weekoffs:
-                    weekday_name = report_date.strftime("%A").upper()
-                    weekoff_values = [w.value if hasattr(w, 'value') else str(w) for w in user.weekoffs]
-                    if weekday_name in weekoff_values:
-                        attendance_status = "WEEKOFF"
-
-            row = {
-                "project_code": project.code,
-                "project_name": project.name,
-                "date": report_date,
-                "role": m.work_role,
-                "user_name": m.user.name,
-                "email": m.user.email,
-                "attendance_status": attendance_status,
-                "tasks_completed": tasks_completed,
-                "minutes_worked": minutes,
-                "hours_worked": hours
-            }
-            data.append(row)
+                row = {
+                    "project_code": project.code,
+                    "project_name": project.name,
+                    "date": current_date,
+                    "role": m.work_role,
+                    "user_name": m.user.name,
+                    "email": m.user.email,
+                    "attendance_status": attendance_status,
+                    "tasks_completed": tasks_completed,
+                    "minutes_worked": minutes,
+                    "hours_worked": hours
+                }
+                data.append(row)
 
     df = pd.DataFrame(data)
     stream = io.StringIO()
     df.to_csv(stream, index=False)
     
     response = StreamingResponse(iter([stream.getvalue()]), media_type="text/csv")
+    
+    # Generate filename based on date range or single date
+    if start_date and end_date:
+        date_str = f"{start_date}_to_{end_date}"
+    else:
+        date_str = str(date_list[0])
+    
     if project_id:
         project = db.query(Project).filter(Project.id == project_id).first()
-        filename = f"roster_{project.code}_{report_date}.csv"
+        filename = f"roster_{project.code}_{date_str}.csv"
     else:
-        filename = f"roster_all_projects_{report_date}.csv"
+        filename = f"roster_all_projects_{date_str}.csv"
     response.headers["Content-Disposition"] = f"attachment; filename={filename}"
     return response
 
@@ -244,10 +271,21 @@ def export_role_drilldown(
 @router.get("/project-history")
 def export_project_history(
     project_id: UUID,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
     db: Session = Depends(get_db)
 ):
     project = db.query(Project).filter(Project.id == project_id).first()
-    metrics = db.query(UserDailyMetrics).filter(UserDailyMetrics.project_id == project_id).all()
+    
+    # Build query with optional date filters
+    query = db.query(UserDailyMetrics).filter(UserDailyMetrics.project_id == project_id)
+    
+    if start_date:
+        query = query.filter(UserDailyMetrics.metric_date >= start_date)
+    if end_date:
+        query = query.filter(UserDailyMetrics.metric_date <= end_date)
+    
+    metrics = query.all()
     
     if not metrics:
         return StreamingResponse(iter(["No data available"]), media_type="text/csv")
@@ -286,7 +324,18 @@ def export_project_history(
     df.to_csv(stream, index=False)
     
     response = StreamingResponse(iter([stream.getvalue()]), media_type="text/csv")
-    response.headers["Content-Disposition"] = f"attachment; filename=history_{project.code}.csv"
+    
+    # Generate filename with date range if provided
+    if start_date and end_date:
+        filename = f"history_{project.code}_{start_date}_to_{end_date}.csv"
+    elif start_date:
+        filename = f"history_{project.code}_from_{start_date}.csv"
+    elif end_date:
+        filename = f"history_{project.code}_until_{end_date}.csv"
+    else:
+        filename = f"history_{project.code}_all_time.csv"
+    
+    response.headers["Content-Disposition"] = f"attachment; filename={filename}"
     return response
 
 
