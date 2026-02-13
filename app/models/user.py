@@ -38,6 +38,7 @@ class User(Base):
     is_active = Column(Boolean, default=True)
 
     doj = Column(Date, nullable=True)
+    dol = Column(Date, nullable=True)  # Date of Leaving
     work_role = Column(String, nullable=True)  # string for now
     default_shift_id = Column(UUID(as_uuid=True), nullable=True)
 

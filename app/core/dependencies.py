@@ -64,6 +64,8 @@ if DISABLE_AUTH:
 else:
     # Supabase Auth Mode - Google OAuth only
     from app.core.supabase_auth import get_user_from_token
+    import logging
+    logger = logging.getLogger(__name__)
     
     def get_current_user(
         authorization: str = Header(...),
@@ -83,27 +85,32 @@ else:
         # Validate token with Supabase
         try:
             supabase_user = get_user_from_token(token)
+            logger.info(f"[AUTH] Supabase user email: {supabase_user.email}")
             
             # Try finding user by email - user MUST already exist in database
             user = db.query(User).filter(User.email == supabase_user.email).first()
             
             # Deny access if user doesn't exist in database
             if not user:
+                logger.warning(f"[AUTH] User not found in database: {supabase_user.email}")
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail="Access denied. Your email is not registered in the system. Please contact an administrator.",
                 )
             
             if not user.is_active:
+                logger.warning(f"[AUTH] User is inactive: {supabase_user.email}")
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
-                    detail="User is inactive",
+                    detail="Your account has been deactivated. Please contact an administrator.",
                 )
             
+            logger.info(f"[AUTH] User authenticated successfully: {user.email}")
             return user
         except HTTPException:
             raise
-        except Exception:
+        except Exception as e:
+            logger.error(f"[AUTH] Authentication error: {type(e).__name__}: {str(e)}")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid or expired token",

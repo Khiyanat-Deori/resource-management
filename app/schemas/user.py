@@ -49,6 +49,9 @@ class UserCreate(BaseModel):
     default_shift_id: Optional[UUID] = None
     rpm_user_id: Optional[UUID] = None
     soul_id: Optional[UUID] = None
+    weekoffs: Optional[List[WeekoffDays]] = [WeekoffDays.SUNDAY]  # Default to Sunday
+    quality_rating: Optional[str] = None
+    is_active: bool = True  # Default to active
 
 class UserResponse(BaseModel):
     id: UUID
@@ -59,10 +62,12 @@ class UserResponse(BaseModel):
 
     work_role: Optional[str] = None
     doj: Optional[date] = None
+    dol: Optional[date] = None  # Date of Leaving
     default_shift_id: Optional[UUID] = None
     rpm_user_id: Optional[UUID] = None
     soul_id: Optional[UUID] = None
     weekoffs: Optional[List[WeekoffDays]] = None  # List to support multiple weekoffs
+    quality_rating: Optional[str] = None
 
     created_at: datetime
     updated_at: Optional[datetime] = None
@@ -73,15 +78,18 @@ class UserResponse(BaseModel):
 
 class UserUpdate(BaseModel):
     name: Optional[str] = None
+    email: Optional[EmailStr] = None
     is_active: Optional[bool] = None
     role: Optional[UserRole] = None
 
     work_role: Optional[str] = None
     doj: Optional[date] = None
+    dol: Optional[date] = None  # Date of Leaving
     default_shift_id: Optional[UUID] = None
     rpm_user_id: Optional[UUID] = None
     soul_id: Optional[UUID] = None
     weekoffs: Optional[List[WeekoffDays]] = None
+    quality_rating: Optional[str] = None
 
 class WeekoffUpdate(BaseModel):
     weekoffs: List[WeekoffDays]  # Support multiple weekoffs
