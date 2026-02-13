@@ -367,6 +367,12 @@ def create_user(payload: UserCreate, db: Session = Depends(get_db)):
             detail="User with this email already exists",
         )
     
+    # Convert weekoffs from schema enum to model enum if provided
+    from app.models.user import WeekoffDays as ModelWeekoffDays
+    weekoffs_model = None
+    if payload.weekoffs:
+        weekoffs_model = [ModelWeekoffDays(w.value) for w in payload.weekoffs]
+    
     user = User(
         email=payload.email,
         name=payload.name,
@@ -376,6 +382,9 @@ def create_user(payload: UserCreate, db: Session = Depends(get_db)):
         default_shift_id=payload.default_shift_id,
         rpm_user_id=payload.rpm_user_id,
         soul_id=payload.soul_id,
+        weekoffs=weekoffs_model,
+        quality_rating=payload.quality_rating,
+        is_active=payload.is_active,
     )
     
     db.add(user)
@@ -494,6 +503,27 @@ def update_user(
         raise HTTPException(status_code=404, detail="User not found")
 
     update_data = payload.model_dump(exclude_unset=True)
+    
+    # Convert weekoffs from schema enum to model enum if provided
+    if "weekoffs" in update_data and update_data["weekoffs"] is not None:
+        from app.models.user import WeekoffDays as ModelWeekoffDays
+        update_data["weekoffs"] = [ModelWeekoffDays(w.value) for w in update_data["weekoffs"]]
+    
+    # Auto-manage dol (Date of Leaving) based on is_active changes
+    # Only auto-set if dol is not explicitly provided in the payload
+    if "is_active" in update_data:
+        new_is_active = update_data["is_active"]
+        old_is_active = user.is_active
+        
+        # If is_active changed from True to False, auto-set dol to today (unless manually provided)
+        if old_is_active and not new_is_active:
+            if "dol" not in update_data or update_data.get("dol") is None:
+                update_data["dol"] = today_ist()
+        
+        # If is_active changed from False to True, auto-clear dol (unless manually provided)
+        elif not old_is_active and new_is_active:
+            if "dol" not in update_data:
+                update_data["dol"] = None
 
     for field, value in update_data.items():
         setattr(user, field, value)
