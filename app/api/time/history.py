@@ -8,6 +8,8 @@ from app.db.session import SessionLocal
 from app.models.history import TimeHistory
 from app.models.project import Project
 from app.models.attendance_daily import AttendanceDaily
+from app.models.project_members import ProjectMember
+from app.models.project_owners import ProjectOwner
 from app.schemas.history import TimeHistoryResponse, ClockInRequest, ClockOutRequest, HomeTimeResponse
 from app.core.dependencies import get_current_user
 from app.models.user import User
@@ -32,6 +34,9 @@ def clock_in(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    import logging
+    logger = logging.getLogger(__name__)
+    
     # Check if user already has an active session (where clock_out_at is NULL)
     active_session = db.query(TimeHistory).filter(
         TimeHistory.user_id == current_user.id,
@@ -48,6 +53,68 @@ def clock_in(
     # Note: sheet_date defaults to today, status defaults to 'PENDING'
     clock_in_at = payload.clock_in_at or now_ist()
     today = today_ist()
+    
+    # --- AUTO-ALLOCATION LOGIC ---
+    # Check if user is already allocated to this project
+    existing_allocation = db.query(ProjectMember).filter(
+        ProjectMember.user_id == current_user.id,
+        ProjectMember.project_id == payload.project_id,
+        ProjectMember.is_active == True
+    ).first()
+    
+    if not existing_allocation:
+        # User is not allocated to this project - auto-allocate them
+        logger.info(f"[CLOCK_IN] User {current_user.id} not allocated to project {payload.project_id}. Auto-allocating...")
+        
+        # Get project details for logging/notification
+        project = db.query(Project).filter(Project.id == payload.project_id).first()
+        project_name = project.name if project else "Unknown Project"
+        
+        # Create new project member allocation
+        new_allocation = ProjectMember(
+            user_id=current_user.id,
+            project_id=payload.project_id,
+            work_role=payload.work_role or "Panelist",  # Use selected work_role or default
+            assigned_from=today,
+            assigned_to=None,  # Indefinite
+            is_active=True
+        )
+        db.add(new_allocation)
+        logger.info(f"[CLOCK_IN] Auto-allocated user {current_user.name} to project {project_name} as {payload.work_role}")
+        
+        # Send notification to project owner/PM
+        try:
+            # Get the first project owner (PM)
+            project_owner = db.query(ProjectOwner).filter(
+                ProjectOwner.project_id == payload.project_id
+            ).first()
+            
+            if project_owner:
+                # Get PM user details
+                pm_user = db.query(User).filter(User.id == project_owner.user_id).first()
+                
+                if pm_user:
+                    from app.services.notification_service import send_auto_allocation_email
+                    send_auto_allocation_email(
+                        pm_email=pm_user.email,
+                        pm_name=pm_user.name,
+                        user_name=current_user.name,
+                        user_email=current_user.email,
+                        project_name=project_name,
+                        work_role=payload.work_role or "Panelist",
+                        allocation_date=str(today)
+                    )
+                    logger.info(f"[CLOCK_IN] Sent auto-allocation notification to PM {pm_user.email}")
+                else:
+                    logger.warning(f"[CLOCK_IN] PM user not found for project owner")
+            else:
+                logger.warning(f"[CLOCK_IN] No project owner found for project {payload.project_id}")
+        except Exception as e:
+            # Don't fail clock-in if notification fails
+            logger.error(f"[CLOCK_IN] Failed to send auto-allocation notification: {e}")
+    
+    # --- END AUTO-ALLOCATION LOGIC ---
+    
     new_session = TimeHistory(
         user_id=current_user.id,
         project_id=payload.project_id,
@@ -69,8 +136,6 @@ def clock_in(
         AttendanceDaily.attendance_date == today
     ).first()
     
-    import logging
-    logger = logging.getLogger(__name__)
     logger.info(f"[CLOCK_IN] User {current_user.id} clocking in on {today} (type: {type(today)})")
     
     if existing_attendance:
